@@ -42,6 +42,7 @@
   // ---------------------------------------------------------------------
   const wallEl = document.getElementById('wall');
   const waitingEl = document.getElementById('waiting-screen');
+  const waitingHashtagEl = document.getElementById('waiting-hashtag');
   const waitingHintEl = document.getElementById('waiting-hint');
   const titleEl = document.getElementById('event-title');
   const subtitleEl = document.getElementById('event-subtitle');
@@ -56,8 +57,8 @@
   // ---------------------------------------------------------------------
   const state = {
     display: {
-      maxCards: 30,
-      columns: 3,
+      maxCards: 12,
+      columns: 1,
       cardTtlSec: 0,
       showImages: true,
     },
@@ -83,7 +84,14 @@
       state.display.showImages = false;
     }
 
-    document.documentElement.style.setProperty('--columns', String(state.display.columns || 3));
+    const columns = state.display.columns || 1;
+    document.documentElement.style.setProperty('--columns', String(columns));
+    // 1 カラム (縦に流れる既定) では 1 行が長くなりすぎないよう中央に幅を絞る。
+    // 複数カラム指定時は画面幅いっぱいを使う。
+    document.documentElement.style.setProperty(
+      '--stream-max-width',
+      columns === 1 ? 'min(94vw, 1700px)' : '100%'
+    );
   }
 
   applyDisplayConfig(state.display);
@@ -343,11 +351,31 @@
       pill.textContent = normalized;
       hashtagsEl.appendChild(pill);
     });
-    waitingHintEl.textContent = (tags || [])
-      .map((t) => (t.startsWith('#') ? t : '#' + t))
-      .join(' ')
-      ? (tags || []).map((t) => (t.startsWith('#') ? t : '#' + t)).join(' ') + ' をつけて投稿してください'
-      : '投稿をお待ちしています';
+    renderWaitingScreen(tags || []);
+  }
+
+  // 待機画面はハッシュタグ本体と補助メッセージを分けて描画する。
+  // ハッシュタグは会場後方からでも読み取れるよう最大級の文字とアクセント色にする。
+  function renderWaitingScreen(tags) {
+    waitingHashtagEl.replaceChildren();
+    const normalized = tags.map((t) => (t.startsWith('#') ? t : '#' + t));
+
+    if (normalized.length === 0) {
+      waitingHintEl.textContent = 'ハッシュタグが設定されていません';
+      return;
+    }
+
+    normalized.forEach((tag) => {
+      const item = document.createElement('span');
+      item.className = 'waiting-hashtag-item';
+      item.textContent = tag;
+      waitingHashtagEl.appendChild(item);
+    });
+
+    waitingHintEl.textContent =
+      normalized.length === 1
+        ? 'このハッシュタグをつけて投稿すると、この画面に表示されます'
+        : 'いずれかのハッシュタグをつけて投稿すると、この画面に表示されます';
   }
 
   function applyWallState(wallState) {

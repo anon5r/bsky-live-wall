@@ -141,8 +141,8 @@ export function loadConfig(): AppConfig {
       backlogSize: num('BACKLOG_SIZE', 30),
     },
     display: {
-      maxCards: num('WALL_MAX_CARDS', 24),
-      columns: num('WALL_COLUMNS', 3),
+      maxCards: num('WALL_MAX_CARDS', 12),
+      columns: num('WALL_COLUMNS', 1),
       cardTtlSec: num('WALL_CARD_TTL_SEC', 0),
       showImages: bool('SHOW_IMAGES', true),
     },

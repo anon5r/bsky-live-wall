@@ -35,7 +35,8 @@
   --tag-font-size: clamp(14px, 1.8vh, 28px);
   --clock-font-size: clamp(16px, 2vh, 32px);
 
-  --columns: 3;
+  --columns: 1;
+  --stream-max-width: min(94vw, 1700px);
   --card-gap: clamp(10px, 1.4vh, 24px);
   --radius: clamp(10px, 1vh, 18px);
 }
@@ -212,14 +213,21 @@ body {
 
 /* ---------------- ウォール本体 ---------------- */
 
+/*
+ * 既定は 1 カラムの縦流れ。新着が上から入り、古い投稿を下へ押し出す。
+ * WALL_COLUMNS を 2 以上にした場合のみ横並びのグリッドになる。
+ */
 .wall-grid {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: repeat(var(--columns), 1fr);
+  grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
   gap: var(--card-gap);
   padding: clamp(12px, 1.8vh, 28px) clamp(20px, 2.4vw, 48px);
   overflow: hidden;
   align-content: start;
+  width: 100%;
+  max-width: var(--stream-max-width);
+  margin-inline: auto;
 }
 
 .card {
@@ -410,9 +418,31 @@ body {
   opacity: 0.9;
 }
 
+.waiting-hashtag {
+  margin: 0.2em 0 0.1em;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35em 0.6em;
+}
+
+.waiting-hashtag-item {
+  font-size: clamp(40px, 7vh, 120px);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-radius: 0.22em;
+  padding: 0.06em 0.3em;
+  letter-spacing: 0.01em;
+  word-break: break-all;
+}
+
+/* 補助メッセージ。ハッシュタグより一段落として読ませる。 */
 .waiting-hint {
-  margin: 0;
-  font-size: clamp(18px, 2.6vh, 42px);
-  color: var(--accent-strong);
-  font-weight: 700;
+  margin: 0.3em 0 0;
+  font-size: clamp(16px, 2.2vh, 34px);
+  color: var(--text-secondary);
+  font-weight: 500;
+  line-height: 1.5;
 }
