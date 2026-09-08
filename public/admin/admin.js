@@ -92,6 +92,8 @@ loginDivider: document.getElementById('login-divider'),
   var pollTimer = null;
   var currentToken = '';
   var sessionExpiresAt = 0;
+  // サーバーが受け付ける認証方式。エラーメッセージの出し分けに使う。
+  var authConfig = { token: true, oauth: false };
   var isPaused = false;
   var pauseRequestInFlight = false;
 
@@ -195,11 +197,18 @@ loginDivider: document.getElementById('login-divider'),
     });
   }
 
+  // 401 は「トークンが違う」とは限らない。セッション切れ・失効・方式変更でも起きる。
+  // トークン入力の失敗は入力時に個別のメッセージを出しているので、ここでは扱わない。
   function handleUnauthorized() {
     stopPolling();
     removeToken();
     currentToken = '';
-    showLogin('トークンが正しくありません');
+    sessionExpiresAt = 0;
+    showLogin(
+      authConfig.oauth && !authConfig.token
+        ? 'セッションの有効期限が切れました。もう一度ログインしてください。'
+        : 'セッションが無効になりました。もう一度ログインしてください。'
+    );
   }
 
   // ==========================================================
@@ -906,6 +915,7 @@ loginDivider: document.getElementById('login-divider'),
       .then(function (res) { return res.ok ? res.json() : { token: true, oauth: false }; })
       .catch(function () { return { token: true, oauth: false }; })
       .then(function (cfg) {
+        authConfig = cfg;
         el.oauthLogin.hidden = !cfg.oauth;
         el.tokenLogin.hidden = !cfg.token;
         el.loginDivider.hidden = !(cfg.oauth && cfg.token);

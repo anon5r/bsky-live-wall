@@ -155,15 +155,39 @@ button {
   color: var(--color-text-muted);
 }
 
-.login-card input[type="password"] {
+/* ハンドル入力とトークン入力で見た目を揃える。
+ * type ごとに書くと新しい入力欄を足したときに素の UI のまま残るため、
+ * ログインカード内のテキスト系入力をまとめて指定する。 */
+.login-card input[type="password"],
+.login-card input[type="text"],
+.login-card input:not([type]) {
+  display: block;
   width: 100%;
+  box-sizing: border-box;
   padding: 14px;
+  /* 16px 未満だと iOS で入力時に拡大されるため 1rem を下回らせない。 */
+  font-family: inherit;
   font-size: 1rem;
+  line-height: 1.4;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface-alt);
   color: var(--color-text);
   margin-bottom: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.login-card input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.login-card input:focus {
+  outline: none;
+  border-color: var(--color-primary, #4f6ef7);
+  /* color-mix 非対応ブラウザ向けのフォールバックを先に置く。 */
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #4f6ef7) 30%, transparent);
 }
 
 .login-error {
