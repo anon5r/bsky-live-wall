@@ -1,3 +1,11 @@
+/* hidden 属性を確実に効かせる。
+ * クラス側の display 指定 (例: .login-screen { display: flex }) は
+ * ブラウザ既定の [hidden] { display: none } より詳細度が高く、
+ * 指定しないと hidden にしても要素が消えない。 */
+[hidden] {
+  display: none !important;
+}
+
 /* ==========================================================
    Bluesky Live Wall - 管理画面スタイル
    運営が長時間見ても疲れない実務的な UI を目指す。
