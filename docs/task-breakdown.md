@@ -30,7 +30,19 @@
 
 `{ posts: WallPost[], stats: WallStats }`
 
-### 管理 API (すべて `Authorization: Bearer <ADMIN_TOKEN>`)
+### 管理 API
+
+認証は 2 経路。管理画面はセッション Cookie、スクリプトは `Authorization: Bearer <ADMIN_TOKEN>`。
+Cookie 認証では状態変更操作に `X-Requested-With: bsky-live-wall` ヘッダが必要 (CSRF 対策)。
+
+| メソッド | パス | body | 説明 |
+| --- | --- | --- | --- |
+| POST | `/api/admin/session` | `{ token: string }` | ログイン。HttpOnly Cookie を発行 |
+| DELETE | `/api/admin/session` | - | ログアウト |
+| GET | `/api/admin/sessions` | - | ログイン中のセッション一覧 |
+| POST | `/api/admin/sessions/revoke-all` | - | 全セッション失効 |
+| GET | `/api/admin/audit` | - | 監査ログ (直近 200 件) |
+
 
 | メソッド | パス | body | 説明 |
 | --- | --- | --- | --- |

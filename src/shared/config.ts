@@ -46,6 +46,8 @@ export interface AppConfig {
   };
   admin: {
     token: string;
+    /** 管理セッションの有効時間 (時間)。イベントの最大長に合わせる。 */
+    sessionTtlHours: number;
   };
   appview: {
     url: string;
@@ -160,6 +162,7 @@ export function loadConfig(): AppConfig {
     },
     admin: {
       token: str('ADMIN_TOKEN', ''),
+      sessionTtlHours: num('ADMIN_SESSION_TTL_HOURS', 12),
     },
     appview: {
       url: str('APPVIEW_URL', 'https://public.api.bsky.app').replace(/\/+$/, ''),

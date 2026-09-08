@@ -554,3 +554,11 @@ button {
 .panel-blocked .actor-item {
   opacity: 0.85;
 }
+
+/* セッション情報の補足表示 */
+.control-note {
+  color: var(--color-text-muted, #6b7699);
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 6px;
+}

@@ -27,6 +27,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // リモート公開時に短いトークンを許すと総当たりで破られる。
+  const MIN_TOKEN_LENGTH = 24;
+  if (config.server.trustProxy && config.admin.token.length < MIN_TOKEN_LENGTH) {
+    log.error(
+      `ADMIN_TOKEN が短すぎます (${config.admin.token.length} 文字)。` +
+        `リモート公開時は ${MIN_TOKEN_LENGTH} 文字以上にしてください。` +
+        '生成例: openssl rand -hex 32'
+    );
+    process.exit(1);
+  }
+  if (!config.server.trustProxy && config.admin.token !== '' && config.admin.token.length < MIN_TOKEN_LENGTH) {
+    log.warn(
+      `ADMIN_TOKEN が短めです (${config.admin.token.length} 文字)。` +
+        'リモートから使う場合は openssl rand -hex 32 で生成し直してください。'
+    );
+  }
+
   const source = createWallSource(config);
   const server = await createServer(config, source);
 

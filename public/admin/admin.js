@@ -16,7 +16,8 @@
   'use strict';
 
   // ---------- 定数 ----------
-  var STORAGE_TOKEN_KEY = 'bsky_live_wall_admin_token';
+  // トークンは保存しない。ログイン時に一度だけ送り、以降は HttpOnly Cookie の
+  // セッションで認証する。localStorage にトークンを残さないための設計。
   var STORAGE_THEME_KEY = 'bsky_live_wall_admin_theme';
   var POLL_INTERVAL_MS = 3000;
   var CONFIRM_TIMEOUT_MS = 3000;
@@ -46,6 +47,9 @@ hiddenEmpty: document.getElementById('hidden-empty'),
 blockedList: document.getElementById('blocked-list'),
 blockedCount: document.getElementById('blocked-count'),
 blockedEmpty: document.getElementById('blocked-empty'),
+sessionCount: document.getElementById('session-count'),
+sessionExpiry: document.getElementById('session-expiry'),
+revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
     hashtags: document.getElementById('hashtags'),
     modMode: document.getElementById('mod-mode'),
     uptime: document.getElementById('uptime'),
@@ -72,6 +76,7 @@ blockedEmpty: document.getElementById('blocked-empty'),
   // ---------- 状態 ----------
   var pollTimer = null;
   var currentToken = '';
+  var sessionExpiresAt = 0;
   var isPaused = false;
   var pauseRequestInFlight = false;
 
@@ -80,24 +85,17 @@ blockedEmpty: document.getElementById('blocked-empty'),
   // ==========================================================
 
   function loadToken() {
-    try {
-      return localStorage.getItem(STORAGE_TOKEN_KEY) || '';
-    } catch (e) {
-      return '';
-    }
+    return '';
   }
 
-  function saveToken(token) {
-    try {
-      localStorage.setItem(STORAGE_TOKEN_KEY, token);
-    } catch (e) {
-      // localStorage が使えない環境でも動作継続
-    }
+  function saveToken() {
+    // 何もしない。トークンは保存しない。
   }
 
   function removeToken() {
     try {
-      localStorage.removeItem(STORAGE_TOKEN_KEY);
+      // 過去のバージョンが保存したトークンがあれば消しておく。
+      localStorage.removeItem('bsky_live_wall_admin_token');
     } catch (e) {
       // 無視
     }
@@ -167,7 +165,9 @@ blockedEmpty: document.getElementById('blocked-empty'),
   function apiFetch(path, options) {
     options = options || {};
     var headers = options.headers || {};
-    headers['Authorization'] = 'Bearer ' + currentToken;
+    // 認証は HttpOnly Cookie。CSRF 対策としてカスタムヘッダを付ける
+    // (クロスオリジンからはプリフライトなしに付与できない)。
+    headers['X-Requested-With'] = 'bsky-live-wall';
     if (options.body) {
       headers['Content-Type'] = 'application/json';
     }
@@ -175,6 +175,8 @@ blockedEmpty: document.getElementById('blocked-empty'),
       method: options.method || 'GET',
       headers: headers,
       body: options.body,
+      // セッション Cookie を必ず送る。
+      credentials: 'same-origin',
     });
   }
 
@@ -311,6 +313,7 @@ blockedEmpty: document.getElementById('blocked-empty'),
     renderRecentList(data.recent || []);
     renderHiddenList(data.hidden || []);
     renderBlockedList(data.blocked || []);
+    refreshSessionInfo();
   }
 
   function updatePauseUI() {
@@ -335,6 +338,37 @@ blockedEmpty: document.getElementById('blocked-empty'),
     posts.forEach(function (post) {
       el.recentList.appendChild(buildPostItem(post, { approve: false, hide: true, block: true }));
     });
+  }
+
+  // ログイン中のセッション数と、自分のセッションの残り時間を表示する。
+  var sessionInfoAt = 0;
+  function refreshSessionInfo() {
+    var now = Date.now();
+    if (now - sessionInfoAt < 30000) {
+      updateSessionExpiryLabel();
+      return;
+    }
+    sessionInfoAt = now;
+    apiFetch('/api/admin/sessions')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        el.sessionCount.textContent = String((data.sessions || []).length);
+        updateSessionExpiryLabel();
+      })
+      .catch(function () { /* 表示できなくても運用に支障はない */ });
+  }
+
+  function updateSessionExpiryLabel() {
+    if (!sessionExpiresAt) {
+      el.sessionExpiry.textContent = '';
+      return;
+    }
+    var remainMin = Math.max(0, Math.round((sessionExpiresAt - Date.now()) / 60000));
+    var hours = Math.floor(remainMin / 60);
+    var mins = remainMin % 60;
+    el.sessionExpiry.textContent =
+      '(自分の残り ' + (hours > 0 ? hours + '時間' : '') + mins + '分)';
   }
 
   function renderHiddenList(posts) {
@@ -537,9 +571,36 @@ blockedEmpty: document.getElementById('blocked-empty'),
 
   el.connectBtn.addEventListener('click', function () {
     var token = el.tokenInput.value || '';
-    currentToken = token;
-    saveToken(token);
-    connect();
+    el.connectBtn.disabled = true;
+
+    // トークンを送るのはこの 1 回だけ。以降はセッション Cookie で認証する。
+    apiFetch('/api/admin/session', {
+      method: 'POST',
+      body: JSON.stringify({ token: token }),
+    })
+      .then(function (res) {
+        if (res.status === 429) {
+          showLogin('試行回数が多すぎます。しばらく待ってからやり直してください。');
+          return null;
+        }
+        if (!res.ok) {
+          showLogin('トークンが正しくありません');
+          return null;
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        el.tokenInput.value = '';
+        sessionExpiresAt = data.expiresAt || 0;
+        connect();
+      })
+      .catch(function () {
+        showLogin('サーバーに接続できません');
+      })
+      .then(function () {
+        el.connectBtn.disabled = false;
+      });
   });
 
   el.tokenInput.addEventListener('keydown', function (evt) {
@@ -553,11 +614,34 @@ blockedEmpty: document.getElementById('blocked-empty'),
     el.tokenInput.value = '';
   });
 
+  // トークンが漏れた疑いがあるときの緊急手段。自分自身もログアウトされる。
+  el.revokeSessionsBtn.replaceWith(
+    makeInlineConfirmButton({
+      label: '全セッション失効',
+      confirmLabel: '本当に？',
+      className: 'btn btn-danger',
+      onConfirm: function () {
+        callAdminApi('/api/admin/sessions/revoke-all')
+          .then(function () {
+            stopPolling();
+            sessionExpiresAt = 0;
+            showLogin('全セッションを失効しました。再度ログインしてください。');
+          })
+          .catch(function () { showToast('失効に失敗しました'); });
+      },
+    })
+  );
+
   el.logoutBtn.addEventListener('click', function () {
     stopPolling();
-    removeToken();
-    currentToken = '';
-    showLogin();
+    // サーバー側のセッションも確実に失効させる。
+    apiFetch('/api/admin/session', { method: 'DELETE' })
+      .catch(function () { /* 失効できなくても画面は戻す */ })
+      .then(function () {
+        removeToken();
+        sessionExpiresAt = 0;
+        showLogin();
+      });
   });
 
   el.openWallBtn.addEventListener('click', function () {

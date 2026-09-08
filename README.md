@@ -90,6 +90,7 @@ URL クエリで `.env` の設定を上書きできます。
 | `WALL_MAX_CARDS` | `40` | DOM 上に保持する最大カード数。スクロールで遡れる範囲 |
 | `ADMIN_TOKEN` | 空 | 管理 API のトークン。空の場合は localhost からのみ操作可。**リモート公開時は必須** |
 | `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。実クライアント IP を判定し、トークンを必須にする |
+| `ADMIN_SESSION_TTL_HOURS` | `12` | 管理セッションの有効時間 |
 | `STARTUP_BACKFILL_MINUTES` | `120` | 起動時に遡って過去の投稿を拾う分数 |
 
 ## 仕組み
