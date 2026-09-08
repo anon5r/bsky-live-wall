@@ -19,6 +19,8 @@ export function registerStreamRoutes(
 ): void {
   // --- WallSource -> SseHub の中継 (起動時に 1 回だけ登録) ---
   source.on('post', (post) => hub.broadcast('post', post));
+  // バックフィルで確定した過去の投稿。既存カードの下へ積む。
+  source.on('history', (posts) => hub.broadcast('history', posts));
   source.on('profile', (payload) => hub.broadcast('profile', payload));
   source.on('remove', (payload) => hub.broadcast('remove', payload));
   source.on('state', (state) => hub.broadcast('state', state));

@@ -56,6 +56,36 @@ export class PostStore {
     }
   }
 
+  /**
+   * 過去に遡って取得した投稿をまとめて追加する。
+   * 挿入順ではなく投稿時刻順に並べ直すため、ライブ投稿より下に正しく並ぶ。
+   */
+  addHistory(posts: WallPost[]): void {
+    let added = false;
+    for (const post of posts) {
+      if (this.byUri.has(post.uri)) continue;
+      this.byUri.set(post.uri, post);
+      this.order.push(post.uri);
+      this.trackAuthor(post.did);
+      this.stats.displayed += 1;
+      added = true;
+    }
+    if (!added) return;
+
+    // order は「古い→新しい」を前提に getRecent が末尾から取り出すため、
+    // 過去分を足したあとは投稿時刻で並べ直す必要がある。
+    this.order.sort((a, b) => {
+      const pa = this.byUri.get(a);
+      const pb = this.byUri.get(b);
+      return (pa?.timeUs ?? 0) - (pb?.timeUs ?? 0);
+    });
+
+    while (this.order.length > this.size) {
+      const oldest = this.order.shift();
+      if (oldest !== undefined) this.byUri.delete(oldest);
+    }
+  }
+
   /** 承認待ちとして追加する。 */
   addPending(post: WallPost): void {
     if (this.pendingByUri.has(post.uri)) return;

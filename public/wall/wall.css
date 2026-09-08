@@ -32,8 +32,8 @@
   --meta-font-size: clamp(13px, 1.5vh, 24px);
   --header-title-size: clamp(26px, 3.4vh, 52px);
   --header-sub-size: clamp(14px, 1.6vh, 26px);
-  --tag-font-size: clamp(14px, 1.8vh, 28px);
-  --clock-font-size: clamp(16px, 2vh, 32px);
+  --tag-font-size: clamp(18px, 2.4vh, 32px);
+  --clock-font-size: clamp(16px, 5vh, 32px);
 
   --columns: 1;
   --stream-max-width: min(94vw, 1700px);
@@ -247,6 +247,11 @@ body {
   animation: card-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* 過去分は一度にまとまって入るため、登場アニメーションを付けない。 */
+.card.card-history {
+  animation: none;
+}
+
 .card.card-removing {
   animation: card-out 0.4s ease forwards;
   pointer-events: none;
@@ -278,7 +283,12 @@ body {
   .card {
     animation: none;
   }
-  .card.card-removing {
+  /* 過去分は一度にまとまって入るため、登場アニメーションを付けない。 */
+.card.card-history {
+  animation: none;
+}
+
+.card.card-removing {
     animation: none;
     opacity: 0;
     transition: opacity 0.2s linear;

@@ -14,6 +14,11 @@ export interface WallSourceEvents {
   post: (post: WallPost) => void;
   /** 承認待ちに入った投稿 (approve モード時のみ) */
   pending: (post: WallPost) => void;
+  /**
+   * 起動時バックフィルで取得した過去の投稿 (新しい順)。
+   * ライブ投稿より下に追加される。取り込み完了後に一度だけ発火する。
+   */
+  history: (posts: WallPost[]) => void;
   /** 後追いで解決した投稿者プロフィール */
   profile: (payload: ProfileUpdatePayload) => void;
   /** 削除・非表示になった投稿 */

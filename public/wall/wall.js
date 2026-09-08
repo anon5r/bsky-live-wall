@@ -330,6 +330,31 @@
 
   newPostsEl.addEventListener('click', () => scrollToTop(true));
 
+  /**
+   * 過去の投稿を既存カードの下へ積む。
+   * posts は新しい順で渡されるため、その順に末尾へ追加すれば時系列が保たれる。
+   * スクロール位置は変えない (下に足すだけなので読んでいる位置に影響しない)。
+   */
+  function appendHistory(posts) {
+    let appended = 0;
+    for (const post of posts) {
+      if (!post || !post.uri) continue;
+      if (state.cards.has(post.uri)) continue;
+      if (state.order.length + appended >= (state.display.maxCards || 40)) break;
+
+      const { card, timeEl } = buildCardElement(post);
+      card.classList.add('card-history');
+      wallEl.appendChild(card);
+      state.cards.set(post.uri, { post, el: card, timeEl });
+      state.order.push(post.uri);
+      appended += 1;
+    }
+    if (appended > 0) {
+      enforceMaxCards();
+      updateWaitingScreen();
+    }
+  }
+
   function enforceMaxCards() {
     const max = state.display.maxCards || 40;
     while (state.order.length > max) {
@@ -599,6 +624,17 @@
       // backlog は古い順で届く想定。addPost は先頭挿入なので古い順のまま処理すれば
       // 結果として新しいものが先頭に来る。
       backlog.forEach((post) => addPost(post));
+    });
+
+    // 起動時バックフィルで確定した過去の投稿。既存カードより下へ積む。
+    es.addEventListener('history', (ev) => {
+      resetWatchdog();
+      try {
+        const posts = JSON.parse(ev.data);
+        if (Array.isArray(posts)) appendHistory(posts);
+      } catch (e) {
+        /* 不正なペイロードは無視 */
+      }
     });
 
     es.addEventListener('post', (ev) => {

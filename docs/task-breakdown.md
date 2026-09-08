@@ -20,6 +20,7 @@
 | --- | --- | --- |
 | `hello` | `{ hashtags, backlog: WallPost[], stats }` | 接続直後に 1 回 |
 | `post` | `WallPost` | 新着投稿 |
+| `history` | `WallPost[]` | バックフィルで確定した過去の投稿 (新しい順)。既存カードの下へ積む |
 | `profile` | `{ did, profile }` | 後追いで解決したプロフィール |
 | `remove` | `{ uri }` | 削除・非表示 |
 | `state` | `WallState` | 一時停止状態・接続状態の変化 |

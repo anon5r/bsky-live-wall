@@ -26,6 +26,8 @@ const STATE_THROTTLE_MS = 1000;
 const POST_COLLECTION = 'app.bsky.feed.post';
 /** 非表示にした uri を覚えておく上限。超えた分は古いものから捨てる。 */
 const HIDDEN_URI_LIMIT = 5000;
+/** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
+const BACKFILL_DELETED_LIMIT = 50_000;
 
 export class WallPipeline extends EventEmitter implements WallSource {
   private readonly config: AppConfig;
@@ -49,6 +51,21 @@ export class WallPipeline extends EventEmitter implements WallSource {
    * 再接続時のリプレイやバックフィルで同じ投稿が再配信されても復活させないために保持する。
    */
   private readonly hiddenUris = new Set<string>();
+
+  /**
+   * バックフィル中に拾った投稿の一時置き場。
+   * 取り込みが完了するまで画面へは出さない。再生の途中で削除コミットが来る投稿を
+   * 一度表示してから消す「ちらつき」を防ぐため。
+   */
+  private backfillBuffer = new Map<string, WallPost>();
+  /**
+   * バックフィルが到達する前にライブ側で削除が観測された uri。
+   * 再生が後からその投稿の作成に追いついても表示しないために保持する。
+   * バックフィル自身が流す過去の削除はバッファから直接取り除くので保持不要。
+   */
+  private backfillDeleted = new Set<string>();
+  /** バックフィルで削除により除外した件数 (ログ用)。 */
+  private backfillDroppedCount = 0;
 
   private stateEmitTimer: NodeJS.Timeout | null = null;
   private stateEmitPending = false;
@@ -86,12 +103,13 @@ export class WallPipeline extends EventEmitter implements WallSource {
     this.jetstream.on('error', (err) => {
       log.warn('Jetstream エラー', err);
     });
-    this.jetstream.on('commit', (event) => this.handleCommit(event));
+    this.jetstream.on('commit', (event) => this.handleCommit(event, 'live'));
 
     // バックフィルはライブ受信と並行して走る。取り込み口は同じで、
     // 重複した投稿は PostStore が uri で弾く。
-    this.backfill.on('commit', (event) => this.handleCommit(event));
+    this.backfill.on('commit', (event) => this.handleCommit(event, 'backfill'));
     this.backfill.on('done', () => {
+      this.flushBackfill();
       this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: false };
       this.scheduleStateEmit();
     });
@@ -198,7 +216,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     this.scheduleStateEmit();
   }
 
-  private handleCommit(event: JetstreamEvent): void {
+  private handleCommit(event: JetstreamEvent, source: 'live' | 'backfill'): void {
     const commit = event.commit;
     if (!commit || commit.collection !== POST_COLLECTION) return;
 
@@ -207,6 +225,13 @@ export class WallPipeline extends EventEmitter implements WallSource {
     const uri = `at://${event.did}/app.bsky.feed.post/${commit.rkey}`;
 
     if (commit.operation === 'delete') {
+      // 取り込み待ちのバッファから取り除く。削除済みの投稿を画面へ出さないため。
+      if (this.backfillBuffer.delete(uri)) {
+        this.backfillDroppedCount += 1;
+      } else if (source === 'live' && this.jetstreamStatus.backfilling) {
+        // 再生がまだこの投稿の作成に到達していない可能性があるため覚えておく。
+        this.rememberBackfillDeleted(uri);
+      }
       if (this.store.remove(uri, 'deleted')) {
         this.emit('remove', { uri, reason: 'deleted' });
         this.scheduleStateEmit();
@@ -219,6 +244,8 @@ export class WallPipeline extends EventEmitter implements WallSource {
     if (!record) return;
     if (this.store.has(uri)) return; // 同一 uri の重複受信を無視する。
     if (this.hiddenUris.has(uri)) return; // 運営が非表示にした投稿は再配信されても復活させない。
+    if (this.backfillBuffer.has(uri)) return; // 取り込み待ちに既にある。
+    if (source === 'backfill' && this.backfillDeleted.has(uri)) return; // 既に削除が確認されている。
 
     const matchedTags = matchHashtags(record, this.config.event.normalizedHashtags);
     if (matchedTags.length === 0) return;
@@ -243,6 +270,12 @@ export class WallPipeline extends EventEmitter implements WallSource {
       author,
     });
 
+    // バックフィル分は取り込み完了までバッファに溜め、削除済みを除いてからまとめて出す。
+    if (source === 'backfill') {
+      this.backfillBuffer.set(uri, wallPost);
+      return;
+    }
+
     if (this.config.moderation.mode === 'approve') {
       const pendingPost: WallPost = { ...wallPost, status: 'pending' };
       this.store.addPending(pendingPost);
@@ -256,6 +289,62 @@ export class WallPipeline extends EventEmitter implements WallSource {
       }
     }
     this.scheduleStateEmit();
+  }
+
+  /**
+   * バックフィルで溜めた投稿を確定させる。
+   * 再生中に削除コミットが来たもの、運営が非表示にしたもの、
+   * 既にライブ側で表示済みのものを除いて、新しい順で一度に送出する。
+   */
+  private flushBackfill(): void {
+    const survivors: WallPost[] = [];
+    let dropped = 0;
+    for (const [uri, post] of this.backfillBuffer) {
+      if (this.backfillDeleted.has(uri) || this.hiddenUris.has(uri)) {
+        dropped += 1;
+        continue;
+      }
+      if (this.store.has(uri)) continue;
+      survivors.push(post);
+    }
+    log.info(
+      `バックフィル確定: ${survivors.length} 件を表示 ` +
+        `(削除済み・非表示のため除外: ${dropped + this.backfillDroppedCount} 件)`
+    );
+    this.backfillDroppedCount = 0;
+    this.backfillBuffer = new Map();
+    this.backfillDeleted = new Set();
+
+    if (survivors.length === 0) return;
+
+    // 新しい順。会場モニターはこの順で既存カードの下へ積む。
+    survivors.sort((a, b) => b.timeUs - a.timeUs);
+
+    if (this.config.moderation.mode === 'approve') {
+      // 承認モードでは過去分も承認を経てから表示する。
+      for (const post of survivors) {
+        const pendingPost: WallPost = { ...post, status: 'pending' };
+        this.store.addPending(pendingPost);
+        if (!this.paused) this.emit('pending', pendingPost);
+      }
+      this.scheduleStateEmit();
+      return;
+    }
+
+    this.store.addHistory(survivors);
+    if (!this.paused) {
+      this.emit('history', survivors);
+    }
+    this.scheduleStateEmit();
+  }
+
+  /** ライブ側で観測した削除を記録する。無制限に増えないよう古いものから捨てる。 */
+  private rememberBackfillDeleted(uri: string): void {
+    this.backfillDeleted.add(uri);
+    if (this.backfillDeleted.size > BACKFILL_DELETED_LIMIT) {
+      const oldest = this.backfillDeleted.values().next();
+      if (!oldest.done) this.backfillDeleted.delete(oldest.value);
+    }
   }
 
   /** 非表示 uri を記録する。無制限に増えないよう古いものから捨てる。 */
