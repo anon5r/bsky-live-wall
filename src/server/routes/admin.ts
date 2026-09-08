@@ -143,9 +143,34 @@ export function registerAdminRoutes(
       return;
     }
 
-    // トークン未設定時の loopback 例外。
-    // プロキシ配下ではリモートの利用者も loopback に見えるため無効化する。
-    if (token === '' && !config.server.trustProxy) {
+    // 1. セッション Cookie。トークンログイン・OAuth ログインの両方がこれを使う。
+    const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
+    if (session) {
+      // Cookie 認証は CSRF の対象になる。SameSite に加えて、
+      // クロスオリジンからは付与できないカスタムヘッダを状態変更操作に要求する。
+      if (request.method !== 'GET' && request.headers['x-requested-with'] !== 'bsky-live-wall') {
+        badRequest(reply, 'X-Requested-With ヘッダが必要です');
+      }
+      return;
+    }
+
+    // 2. これ以降はトークンによる認証。AUTH_MODE=oauth では一切認めない。
+    //    loopback 例外もトークン方式の利便機能であり、OAuth 専用モードでは適用しない。
+    if (!tokenAuthEnabled) {
+      recordAuthFailure(ip);
+      unauthorized(reply);
+      return;
+    }
+
+    // 3. トークン未設定時の loopback 例外 (会場 PC での単独運用向け)。
+    //    プロキシ配下ではリモートの利用者も loopback に見えるため無効化する。
+    if (token === '') {
+      if (config.server.trustProxy) {
+        // 起動時に弾いているはずだが二重に防ぐ。
+        logger.error('TRUST_PROXY=true では ADMIN_TOKEN が必須です');
+        unauthorized(reply);
+        return;
+      }
       if (!isLoopback(ip)) {
         logger.warn('loopback 以外からの管理 API アクセスを拒否', { ip });
         recordAuthFailure(ip);
@@ -154,30 +179,7 @@ export function registerAdminRoutes(
       return;
     }
 
-    if (token === '') {
-      // TRUST_PROXY=true かつトークン未設定。起動時に弾いているはずだが二重に防ぐ。
-      logger.error('TRUST_PROXY=true では ADMIN_TOKEN が必須です');
-      unauthorized(reply);
-      return;
-    }
-
-    // 1. セッション Cookie (管理画面)
-    const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
-    if (session) {
-      // Cookie 認証は CSRF の対象になる。SameSite=Strict に加えて、
-      // クロスオリジンからは付与できないカスタムヘッダを状態変更操作に要求する。
-      if (request.method !== 'GET' && request.headers['x-requested-with'] !== 'bsky-live-wall') {
-        badRequest(reply, 'X-Requested-With ヘッダが必要です');
-      }
-      return;
-    }
-
-    // 2. Bearer トークン (スクリプト・監視用)
-    if (!tokenAuthEnabled) {
-      recordAuthFailure(ip);
-      unauthorized(reply);
-      return;
-    }
+    // 4. Bearer トークン (スクリプト・監視用)
     const header = request.headers.authorization ?? '';
     const match = /^Bearer (.+)$/.exec(header);
     if (!match || !match[1] || !tokenMatches(match[1], token)) {

@@ -9,7 +9,7 @@
 
 | 項目 | ローカル運用 | リモート公開 |
 | --- | --- | --- |
-| `ADMIN_TOKEN` | 空でよい (localhost からのみ操作可) | **必須** |
+| `ADMIN_TOKEN` | 空でよい (localhost からのみ操作可) | **必須** (`AUTH_MODE=oauth` なら不要) |
 | `TRUST_PROXY` | `false` | **`true`** (リバースプロキシ配下の場合) |
 | TLS | 不要 | **必須** |
 
@@ -81,6 +81,20 @@ OAuth が保証するのは「本人であること」だけです。**管理し
 
 `.env` を書き換えたあと、管理画面から `POST /api/admin/actors/reload` で再読み込みできます。
 **リストから外されたアカウントのセッションは即座に失効します。**
+
+#### トークン方式との関係
+
+`AUTH_MODE=oauth` にすると、トークンに関する経路はすべて無効になります。
+
+- `Authorization: Bearer` による認証
+- トークンによるログイン (`POST /api/admin/session`)
+- **トークン未設定時の loopback 例外**
+
+3 つ目が重要です。loopback 例外はトークン方式の利便機能であり、`AUTH_MODE=oauth` では
+localhost からでも認証なしに管理 API を操作できません。`ADMIN_TOKEN` も不要になります。
+
+監視スクリプトなどで Bearer 認証を併用したい場合は `AUTH_MODE=both` にし、
+`ADMIN_TOKEN` を設定してください。
 
 #### 秘密鍵の管理は不要
 

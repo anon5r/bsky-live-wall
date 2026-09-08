@@ -17,9 +17,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // トークン方式が有効なときだけ、トークンに関する検証を行う。
+  // AUTH_MODE=oauth ではトークンを使わないため、未設定でも正常な構成。
+  const tokenAuthEnabled =
+    config.admin.authMode === 'token' || config.admin.authMode === 'both';
+
   // リバースプロキシ配下では loopback 例外が使えないため、トークンなしでの起動を拒否する。
   // これを許すと、プロキシ経由の全アクセスが管理者権限を得てしまう。
-  if (config.server.trustProxy && config.admin.token === '') {
+  if (tokenAuthEnabled && config.server.trustProxy && config.admin.token === '') {
     log.error(
       'TRUST_PROXY=true では ADMIN_TOKEN が必須です。' +
         '設定しないと、プロキシ経由のすべてのアクセスが管理 API を操作できてしまいます。'
@@ -29,7 +34,7 @@ async function main(): Promise<void> {
 
   // リモート公開時に短いトークンを許すと総当たりで破られる。
   const MIN_TOKEN_LENGTH = 24;
-  if (config.server.trustProxy && config.admin.token.length < MIN_TOKEN_LENGTH) {
+  if (tokenAuthEnabled && config.server.trustProxy && config.admin.token.length < MIN_TOKEN_LENGTH) {
     log.error(
       `ADMIN_TOKEN が短すぎます (${config.admin.token.length} 文字)。` +
         `リモート公開時は ${MIN_TOKEN_LENGTH} 文字以上にしてください。` +
@@ -37,7 +42,12 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  if (!config.server.trustProxy && config.admin.token !== '' && config.admin.token.length < MIN_TOKEN_LENGTH) {
+  if (
+    tokenAuthEnabled &&
+    !config.server.trustProxy &&
+    config.admin.token !== '' &&
+    config.admin.token.length < MIN_TOKEN_LENGTH
+  ) {
     log.warn(
       `ADMIN_TOKEN が短めです (${config.admin.token.length} 文字)。` +
         'リモートから使う場合は openssl rand -hex 32 で生成し直してください。'
