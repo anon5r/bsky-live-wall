@@ -120,12 +120,18 @@ export class PostStore {
   }
 
   /** 表示中・承認待ちの両方から削除する。存在した場合 true。 */
-  remove(uri: string, _reason: 'deleted' | 'hidden' | 'cleared'): boolean {
+  remove(uri: string, reason: 'deleted' | 'hidden' | 'cleared'): boolean {
     let removed = false;
     if (this.byUri.delete(uri)) {
       const idx = this.order.indexOf(uri);
       if (idx >= 0) this.order.splice(idx, 1);
       removed = true;
+
+      // 投稿者が消したものと運営が伏せたものは、表示実績から差し引く。
+      // 画面の全消去は「表示した事実」を取り消すものではないので数えたままにする。
+      if (reason === 'deleted' || reason === 'hidden') {
+        this.stats.displayed = Math.max(0, this.stats.displayed - 1);
+      }
     }
     if (this.pendingByUri.delete(uri)) {
       const idx = this.pendingOrder.indexOf(uri);
