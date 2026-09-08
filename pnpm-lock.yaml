@@ -17,6 +17,9 @@ importers:
       '@fastify/static':
         specifier: ^8.0.4
         version: 8.3.0
+      '@fortawesome/fontawesome-free':
+        specifier: ^7.3.1
+        version: 7.3.1
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -339,6 +342,10 @@ packages:
 
   '@fastify/static@8.3.0':
     resolution: {integrity: sha512-yKxviR5PH1OKNnisIzZKmgZSus0r2OZb8qCSbqmw34aolT4g3UlzYfeBRym+HJ1J471CR8e2ldNub4PubD1coA==}
+
+  '@fortawesome/fontawesome-free@7.3.1':
+    resolution: {integrity: sha512-wmglKKPDIkgV3aWlZzWECCPoGIkYCulzBwxG9+w7rc5BGapZ6cPMpoPOT8k36J0Ni7PPX6c/rsoMWfS4d1MUMg==}
+    engines: {node: '>=6'}
 
   '@isaacs/cliui@9.0.0':
     resolution: {integrity: sha512-AokJm4tuBHillT+FpMtxQ60n8ObyXBatq7jD2/JA9dxbDDokKQm8KMht5ibGzLVU9IJDIKK4TPKgMHEYMn3lMg==}
@@ -1015,6 +1022,8 @@ snapshots:
       fastify-plugin: 5.1.0
       fastq: 1.20.3
       glob: 11.1.0
+
+  '@fortawesome/fontawesome-free@7.3.1': {}
 
   '@isaacs/cliui@9.0.0': {}
 

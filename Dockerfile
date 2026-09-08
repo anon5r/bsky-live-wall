@@ -9,6 +9,9 @@ RUN corepack enable && pnpm install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY scripts ./scripts
+COPY public ./public
+# ビルド時に Font Awesome を public/vendor/ へ取り込む (CDN を参照しないため)。
 RUN pnpm build
 
 # 実行に不要な devDependencies を落とす。
@@ -26,7 +29,8 @@ ENV NODE_ENV=production \
 # root で動かさない。node ユーザーはベースイメージに存在する。
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
-COPY --chown=node:node public ./public
+# vendor 済みの public をビルド段から持ってくる。
+COPY --from=builder --chown=node:node /app/public ./public
 COPY --chown=node:node package.json ./
 
 USER node

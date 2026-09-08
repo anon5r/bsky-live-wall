@@ -225,6 +225,16 @@ OAuth は本人確認までを担い、管理してよいかは `ADMIN_ACTORS` �
 誰でも管理 API を操作できてしまいます (このため `TRUST_PROXY=true` かつ
 `ADMIN_TOKEN` 未設定では起動を拒否します)。
 
+## アイコン
+
+管理画面のアイコンには Font Awesome Free を使います。**CDN は参照しません。**
+会場のネットワークが不安定でも確実に表示させるため、`pnpm build` / `pnpm dev` 実行時に
+`node_modules` から `public/vendor/fontawesome/` へ複製して自前で配信します
+(`scripts/vendor-assets.mjs`)。
+
+`public/vendor/` は生成物のため git 管理外です。`pnpm install` 後に
+`pnpm build`、`pnpm dev`、`pnpm vendor` のいずれかを実行すると作られます。
+
 ## テスト
 
 ```bash

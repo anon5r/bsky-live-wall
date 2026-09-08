@@ -4,7 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Bluesky Live Wall - 管理画面</title>
-<link rel="stylesheet" href="/admin/admin.css" />
+<link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+  <link rel="stylesheet" href="/admin/admin.css" />
 </head>
 <body>
   <!-- トースト風エラーバナー (ネットワークエラー等) -->
@@ -24,11 +25,11 @@
       <!-- AT Protocol OAuth によるログイン -->
       <div id="oauth-login" class="login-method" hidden>
         <p class="login-desc">Bluesky のアカウントでログインします。</p>
-        <label for="handle-input">ハンドル または DID</label>
+        <label for="handle-input"><i class="fa-solid fa-at fa-fw" aria-hidden="true"></i> ハンドル または DID</label>
         <input type="text" id="handle-input" autocomplete="username" inputmode="url"
                placeholder="alice.bsky.social" />
         <div class="login-actions">
-          <button id="oauth-btn" class="btn btn-primary btn-large">Bluesky でログイン</button>
+          <button id="oauth-btn" class="btn btn-primary btn-large"><i class="fa-brands fa-bluesky fa-fw" aria-hidden="true"></i> Bluesky でログイン</button>
         </div>
         <p class="login-note">
           パスワードはこのサイトに入力しません。認証はご自身の PDS で行われます。
@@ -40,11 +41,11 @@
       <!-- ADMIN_TOKEN によるログイン -->
       <div id="token-login" class="login-method" hidden>
         <p class="login-desc">ADMIN_TOKEN を入力してください。未設定 (ローカル運用) の場合は空のまま接続できます。</p>
-        <label for="token-input">ADMIN_TOKEN</label>
+        <label for="token-input"><i class="fa-solid fa-key fa-fw" aria-hidden="true"></i> ADMIN_TOKEN</label>
         <input type="password" id="token-input" autocomplete="off" placeholder="トークンを入力 (任意)" />
         <div class="login-actions">
-          <button id="connect-btn" class="btn btn-primary btn-large">接続</button>
-          <button id="clear-token-btn" class="btn btn-ghost">トークンを消去</button>
+          <button id="connect-btn" class="btn btn-primary btn-large"><i class="fa-solid fa-right-to-bracket fa-fw" aria-hidden="true"></i> 接続</button>
+          <button id="clear-token-btn" class="btn btn-ghost"><i class="fa-solid fa-eraser fa-fw" aria-hidden="true"></i> トークンを消去</button>
         </div>
       </div>
     </div>
@@ -57,16 +58,16 @@
         <h1>Bluesky Live Wall <span class="app-header-sub">管理画面</span></h1>
       </div>
       <div class="app-header-actions">
-        <button id="open-wall-btn" class="btn btn-neutral">会場モニターを開く</button>
-        <button id="theme-toggle-btn" class="btn btn-ghost" title="テーマ切替">テーマ</button>
-        <button id="logout-btn" class="btn btn-ghost">トークンを消去</button>
+        <button id="open-wall-btn" class="btn btn-neutral"><i class="fa-solid fa-display fa-fw" aria-hidden="true"></i> 会場モニターを開く</button>
+        <button id="theme-toggle-btn" class="btn btn-ghost" title="テーマ切替"><i id="theme-icon" class="fa-solid fa-moon fa-fw" aria-hidden="true"></i> テーマ</button>
+        <button id="logout-btn" class="btn btn-ghost"><i class="fa-solid fa-right-from-bracket fa-fw" aria-hidden="true"></i> ログアウト</button>
       </div>
     </header>
 
     <main class="main-grid">
       <!-- 状態パネル -->
       <section class="panel panel-status">
-        <h2 class="panel-title">状態</h2>
+        <h2 class="panel-title"><i class="fa-solid fa-gauge-high fa-fw" aria-hidden="true"></i> 状態</h2>
         <div class="status-grid">
           <div class="status-item">
             <span class="status-label">Jetstream</span>
@@ -115,37 +116,37 @@
 
       <!-- 一時停止 / 全消去 パネル -->
       <section class="panel panel-controls">
-        <h2 class="panel-title">操作</h2>
+        <h2 class="panel-title"><i class="fa-solid fa-sliders fa-fw" aria-hidden="true"></i> 操作</h2>
         <div class="control-row">
-          <span class="control-label">ウォールの一時停止</span>
+          <span class="control-label"><i class="fa-solid fa-circle-pause fa-fw" aria-hidden="true"></i> ウォールの一時停止</span>
           <button id="pause-toggle" class="toggle-btn" aria-pressed="false">
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
             <span id="pause-toggle-label" class="toggle-text">稼働中</span>
           </button>
         </div>
         <div class="control-row">
-          <span class="control-label">表示中の全消去</span>
-          <button id="clear-all-btn" class="btn btn-danger">全消去</button>
+          <span class="control-label"><i class="fa-solid fa-broom fa-fw" aria-hidden="true"></i> 表示中の全消去</span>
+          <button id="clear-all-btn" class="btn btn-danger"><i class="fa-solid fa-broom fa-fw" aria-hidden="true"></i> 全消去</button>
         </div>
         <div class="control-row">
           <span class="control-label">
             ログイン中のセッション <span id="session-count" class="panel-count">0</span>
             <span id="session-expiry" class="control-note"></span>
           </span>
-          <button id="revoke-sessions-btn" class="btn btn-danger">全セッション失効</button>
+          <button id="revoke-sessions-btn" class="btn btn-danger"><i class="fa-solid fa-user-lock fa-fw" aria-hidden="true"></i> 全セッション失効</button>
         </div>
       </section>
 
       <!-- 監視設定 -->
       <section class="panel panel-watch">
-        <h2 class="panel-title">監視設定</h2>
+        <h2 class="panel-title"><i class="fa-solid fa-binoculars fa-fw" aria-hidden="true"></i> 監視設定</h2>
 
         <div class="field">
-          <label for="hashtags-input">監視ハッシュタグ (カンマ区切り、最大 10 件)</label>
+          <label for="hashtags-input"><i class="fa-solid fa-hashtag fa-fw" aria-hidden="true"></i> 監視ハッシュタグ (カンマ区切り、最大 10 件)</label>
           <div class="field-row">
             <input type="text" id="hashtags-input" autocomplete="off"
                    placeholder="myevent2026, マイイベント" />
-            <button id="hashtags-save-btn" class="btn btn-primary">適用</button>
+            <button id="hashtags-save-btn" class="btn btn-primary"><i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> 適用</button>
           </div>
           <p class="field-note">
             変更は即座に反映されます。表示中の投稿はそのまま残るため、
@@ -154,10 +155,10 @@
         </div>
 
         <div class="field">
-          <label for="jetstream-select">Jetstream 接続先</label>
+          <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
           <div class="field-row">
             <select id="jetstream-select"></select>
-            <button id="jetstream-switch-btn" class="btn btn-neutral">切り替え</button>
+            <button id="jetstream-switch-btn" class="btn btn-neutral"><i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え</button>
           </div>
           <p class="field-note">
             切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
@@ -167,16 +168,16 @@
 
       <!-- モデレーションリスト -->
       <section class="panel panel-modlist">
-        <h2 class="panel-title">モデレーションリスト <span id="modlist-count" class="panel-count">0</span></h2>
+        <h2 class="panel-title"><i class="fa-solid fa-shield-halved fa-fw" aria-hidden="true"></i> モデレーションリスト <span id="modlist-count" class="panel-count">0</span></h2>
         <ul id="modlist-subscribed" class="actor-list"></ul>
         <p id="modlist-empty" class="empty-msg">購読中のリストはありません。</p>
 
         <div class="field">
-          <label for="modlist-actor-input">リストを読み込むアカウント</label>
+          <label for="modlist-actor-input"><i class="fa-solid fa-user fa-fw" aria-hidden="true"></i> リストを読み込むアカウント</label>
           <div class="field-row">
             <input type="text" id="modlist-actor-input" autocomplete="off"
                    placeholder="ログイン中のアカウント (OAuth 時は自動)" />
-            <button id="modlist-load-btn" class="btn btn-neutral">リストを取得</button>
+            <button id="modlist-load-btn" class="btn btn-neutral"><i class="fa-solid fa-cloud-arrow-down fa-fw" aria-hidden="true"></i> リストを取得</button>
           </div>
           <p class="field-note">
             掲載アカウントの投稿は表示されなくなります。リストは 5 分ごとに取り直されます。
@@ -187,28 +188,28 @@
 
       <!-- 承認待ちリスト -->
       <section id="pending-panel" class="panel panel-pending" hidden>
-        <h2 class="panel-title">承認待ち <span id="pending-count" class="panel-count">0</span></h2>
+        <h2 class="panel-title"><i class="fa-solid fa-circle-check fa-fw" aria-hidden="true"></i> 承認待ち <span id="pending-count" class="panel-count">0</span></h2>
         <ul id="pending-list" class="post-list"></ul>
         <p id="pending-empty" class="empty-msg">承認待ちの投稿はありません。</p>
       </section>
 
       <!-- 直近投稿リスト -->
       <section class="panel panel-recent">
-        <h2 class="panel-title">直近の投稿 <span id="recent-count" class="panel-count">0</span></h2>
+        <h2 class="panel-title"><i class="fa-solid fa-comments fa-fw" aria-hidden="true"></i> 直近の投稿 <span id="recent-count" class="panel-count">0</span></h2>
         <ul id="recent-list" class="post-list"></ul>
         <p id="recent-empty" class="empty-msg">まだ投稿がありません。</p>
       </section>
 
       <!-- 非表示にした投稿 (復元可能) -->
       <section class="panel panel-hidden">
-        <h2 class="panel-title">非表示にした投稿 <span id="hidden-count" class="panel-count">0</span></h2>
+        <h2 class="panel-title"><i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示にした投稿 <span id="hidden-count" class="panel-count">0</span></h2>
         <ul id="hidden-list" class="post-list"></ul>
         <p id="hidden-empty" class="empty-msg">非表示にした投稿はありません。</p>
       </section>
 
       <!-- ブロック中の投稿者 (解除可能) -->
       <section class="panel panel-blocked">
-        <h2 class="panel-title">ブロック中の投稿者 <span id="blocked-count" class="panel-count">0</span></h2>
+        <h2 class="panel-title"><i class="fa-solid fa-ban fa-fw" aria-hidden="true"></i> ブロック中の投稿者 <span id="blocked-count" class="panel-count">0</span></h2>
         <ul id="blocked-list" class="actor-list"></ul>
         <p id="blocked-empty" class="empty-msg">ブロック中の投稿者はいません。</p>
       </section>

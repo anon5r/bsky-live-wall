@@ -136,6 +136,17 @@ loginDivider: document.getElementById('login-divider'),
     } else {
       document.documentElement.removeAttribute('data-theme');
     }
+    updateThemeIcon();
+  }
+
+  // 現在のテーマを示すアイコンに差し替える (暗いとき月、明るいとき太陽)。
+  function updateThemeIcon() {
+    var iconEl = document.getElementById('theme-icon');
+    if (!iconEl) return;
+    var attr = document.documentElement.getAttribute('data-theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var isDark = attr ? attr === 'dark' : prefersDark;
+    iconEl.className = (isDark ? 'fa-solid fa-moon' : 'fa-solid fa-sun') + ' fa-fw';
   }
 
   function toggleTheme() {
@@ -409,16 +420,20 @@ loginDivider: document.getElementById('login-divider'),
       body.appendChild(name);
 
       var meta = document.createElement('div');
-      meta.className = 'field-note';
-      meta.textContent = info.error
+      meta.className = 'field-note list-meta';
+      meta.appendChild(buildListKindBadge(info.purpose));
+
+      var count = document.createElement('span');
+      count.textContent = info.error
         ? info.memberCount + ' 件 (最新の取得に失敗: ' + info.error + ')'
         : info.memberCount + ' 件';
+      meta.appendChild(count);
       body.appendChild(meta);
       li.appendChild(body);
 
       var btn = document.createElement('button');
       btn.className = 'btn btn-neutral btn-small';
-      btn.textContent = '購読解除';
+      btn.innerHTML = '<i class="fa-solid fa-link-slash fa-fw" aria-hidden="true"></i> 購読解除';
       btn.addEventListener('click', function () {
         apiFetch('/api/admin/modlists', {
           method: 'DELETE',
@@ -491,7 +506,7 @@ loginDivider: document.getElementById('login-divider'),
 
       var btn = document.createElement('button');
       btn.className = 'btn btn-primary btn-small';
-      btn.textContent = 'ブロック解除';
+      btn.innerHTML = '<i class="fa-solid fa-unlock fa-fw" aria-hidden="true"></i> ブロック解除';
       btn.addEventListener('click', function () {
         callAdminApi('/api/admin/unblock', { did: actor })
           .then(function () { fetchState(); })
@@ -551,7 +566,7 @@ loginDivider: document.getElementById('login-divider'),
     if (actions.approve) {
       var approveBtn = document.createElement('button');
       approveBtn.className = 'btn btn-primary btn-small';
-      approveBtn.textContent = '承認';
+      approveBtn.innerHTML = '<i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> 承認';
       approveBtn.addEventListener('click', function () {
         callAdminApi('/api/admin/approve', { uri: post.uri })
           .then(function () { fetchState(); })
@@ -563,7 +578,7 @@ loginDivider: document.getElementById('login-divider'),
     if (actions.hide) {
       var hideBtn = document.createElement('button');
       hideBtn.className = 'btn btn-neutral btn-small';
-      hideBtn.textContent = '非表示';
+      hideBtn.innerHTML = '<i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示';
       hideBtn.addEventListener('click', function () {
         callAdminApi('/api/admin/hide', { uri: post.uri })
           .then(function () { fetchState(); })
@@ -575,7 +590,7 @@ loginDivider: document.getElementById('login-divider'),
     if (actions.unhide) {
       var unhideBtn = document.createElement('button');
       unhideBtn.className = 'btn btn-primary btn-small';
-      unhideBtn.textContent = '復元';
+      unhideBtn.innerHTML = '<i class="fa-solid fa-rotate-left fa-fw" aria-hidden="true"></i> 復元';
       unhideBtn.addEventListener('click', function () {
         callAdminApi('/api/admin/unhide', { uri: post.uri })
           .then(function () { fetchState(); })
@@ -587,6 +602,7 @@ loginDivider: document.getElementById('login-divider'),
     if (actions.block && post.did) {
       var blockBtn = makeInlineConfirmButton({
         label: '投稿者をブロック',
+        icon: 'fa-solid fa-ban',
         confirmLabel: '本当に？',
         className: 'btn btn-danger btn-small',
         onConfirm: function () {
@@ -611,14 +627,25 @@ loginDivider: document.getElementById('login-divider'),
   function makeInlineConfirmButton(opts) {
     var btn = document.createElement('button');
     btn.className = opts.className;
-    btn.textContent = opts.label;
+
+    // アイコンとラベルを別要素に分ける。
+    // textContent で書き換えるとアイコンごと消えてしまうため。
+    var iconEl = document.createElement('i');
+    iconEl.className = (opts.icon || 'fa-solid fa-circle-question') + ' fa-fw';
+    iconEl.setAttribute('aria-hidden', 'true');
+    var labelEl = document.createElement('span');
+    labelEl.textContent = opts.label;
+    btn.appendChild(iconEl);
+    btn.appendChild(document.createTextNode(' '));
+    btn.appendChild(labelEl);
 
     var confirming = false;
     var resetTimer = null;
 
     function reset() {
       confirming = false;
-      btn.textContent = opts.label;
+      iconEl.className = (opts.icon || 'fa-solid fa-circle-question') + ' fa-fw';
+      labelEl.textContent = opts.label;
       btn.classList.remove('btn-confirming');
       if (resetTimer) {
         clearTimeout(resetTimer);
@@ -629,7 +656,9 @@ loginDivider: document.getElementById('login-divider'),
     btn.addEventListener('click', function () {
       if (!confirming) {
         confirming = true;
-        btn.textContent = opts.confirmLabel;
+        // 確認待ちであることをアイコンでも示す。
+        iconEl.className = 'fa-solid fa-triangle-exclamation fa-fw';
+        labelEl.textContent = opts.confirmLabel;
         btn.classList.add('btn-confirming');
         resetTimer = setTimeout(reset, CONFIRM_TIMEOUT_MS);
         return;
@@ -710,6 +739,31 @@ loginDivider: document.getElementById('login-divider'),
       });
   });
 
+  /**
+   * リストの種別バッジを作る。
+   * modlist (モデレーションリスト) と curatelist (通常のリスト) を
+   * アイコンと色で区別する。用途が違うものを取り違えないようにするため。
+   */
+  function buildListKindBadge(purpose) {
+    var isMod = String(purpose || '').indexOf('modlist') >= 0;
+    var badge = document.createElement('span');
+    badge.className = 'list-badge ' + (isMod ? 'list-badge-mod' : 'list-badge-curate');
+
+    var icon = document.createElement('i');
+    icon.className = isMod ? 'fa-solid fa-shield-halved' : 'fa-solid fa-bookmark';
+    icon.setAttribute('aria-hidden', 'true');
+    badge.appendChild(icon);
+
+    var label = document.createElement('span');
+    label.textContent = isMod ? 'モデレーション' : '通常リスト';
+    badge.appendChild(label);
+
+    badge.title = isMod
+      ? 'モデレーションリスト: 掲載アカウントを非表示にする用途のリスト'
+      : '通常リスト (キュレーションリスト): 本来は購読して見るためのリスト';
+    return badge;
+  }
+
   // 取得したリストの候補を並べ、購読ボタンを付ける。
   function renderAvailableLists(lists) {
     el.modlistAvailable.replaceChildren();
@@ -731,16 +785,19 @@ loginDivider: document.getElementById('login-divider'),
       body.appendChild(name);
 
       var meta = document.createElement('div');
-      meta.className = 'field-note';
+      meta.className = 'field-note list-meta';
       // modlist 以外 (curatelist など) も購読はできるが、用途が違うことを示す。
-      var kind = list.purpose.indexOf('modlist') >= 0 ? 'モデレーションリスト' : 'キュレーションリスト';
-      meta.textContent = kind + ' / ' + list.itemCount + ' 件';
+      meta.appendChild(buildListKindBadge(list.purpose));
+
+      var count = document.createElement('span');
+      count.textContent = list.itemCount + ' 件';
+      meta.appendChild(count);
       body.appendChild(meta);
       li.appendChild(body);
 
       var btn = document.createElement('button');
       btn.className = 'btn btn-primary btn-small';
-      btn.textContent = '購読';
+      btn.innerHTML = '<i class="fa-solid fa-link fa-fw" aria-hidden="true"></i> 購読';
       btn.addEventListener('click', function () {
         btn.disabled = true;
         callAdminApi('/api/admin/modlists', { uri: list.uri })
@@ -837,6 +894,7 @@ loginDivider: document.getElementById('login-divider'),
   el.revokeSessionsBtn.replaceWith(
     makeInlineConfirmButton({
       label: '全セッション失効',
+      icon: 'fa-solid fa-user-lock',
       confirmLabel: '本当に？',
       className: 'btn btn-danger',
       onConfirm: function () {
@@ -889,6 +947,7 @@ loginDivider: document.getElementById('login-divider'),
 
   var clearAllInlineBtn = makeInlineConfirmButton({
     label: '全消去',
+    icon: 'fa-solid fa-broom',
     confirmLabel: '本当に？',
     className: 'btn btn-danger',
     onConfirm: function () {
