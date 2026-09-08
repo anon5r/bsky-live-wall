@@ -91,6 +91,9 @@ URL クエリで `.env` の設定を上書きできます。
 | `ADMIN_TOKEN` | 空 | 管理 API のトークン。空の場合は localhost からのみ操作可。**リモート公開時は必須** |
 | `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。実クライアント IP を判定し、トークンを必須にする |
 | `ADMIN_SESSION_TTL_HOURS` | `12` | 管理セッションの有効時間 |
+| `AUTH_MODE` | `token` | `oauth` で Bluesky アカウントによるログイン。`both` で併用 |
+| `PUBLIC_URL` | 空 | OAuth 使用時に必須。公開 URL |
+| `ADMIN_ACTORS` | 空 | 管理を許可するアカウント (ハンドル / DID)。招待制の実体 |
 | `STARTUP_BACKFILL_MINUTES` | `120` | 起動時に遡って過去の投稿を拾う分数 |
 
 ## 仕組み
@@ -191,6 +194,18 @@ cp .env.example .env
 # .env に HASHTAGS / ADMIN_TOKEN / WALL_DOMAIN を設定
 docker compose up -d
 ```
+
+リモート公開では、管理画面のログインを **AT Protocol OAuth** にできます。
+共有トークンと違い、個人単位で識別・許可・失効ができます。
+
+```dotenv
+AUTH_MODE=oauth
+PUBLIC_URL=https://wall.example.com
+ADMIN_ACTORS=alice.bsky.social,bob.example.com
+```
+
+OAuth は本人確認までを担い、管理してよいかは `ADMIN_ACTORS` の許可リストで決めます
+(招待制の実体)。スコープは `atproto` のみで、パスワードは本システムに入力されません。
 
 **リバースプロキシ配下では `TRUST_PROXY=true` が必須です。** 設定しないと、
 プロキシ経由のアクセスがすべて loopback と誤認され、`ADMIN_TOKEN` が空の場合に

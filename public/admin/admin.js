@@ -50,6 +50,11 @@ blockedEmpty: document.getElementById('blocked-empty'),
 sessionCount: document.getElementById('session-count'),
 sessionExpiry: document.getElementById('session-expiry'),
 revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
+oauthLogin: document.getElementById('oauth-login'),
+oauthBtn: document.getElementById('oauth-btn'),
+handleInput: document.getElementById('handle-input'),
+tokenLogin: document.getElementById('token-login'),
+loginDivider: document.getElementById('login-divider'),
     hashtags: document.getElementById('hashtags'),
     modMode: document.getElementById('mod-mode'),
     uptime: document.getElementById('uptime'),
@@ -569,6 +574,34 @@ revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
   // イベントハンドラ
   // ==========================================================
 
+  el.oauthBtn.addEventListener('click', function () {
+    var handle = (el.handleInput.value || '').trim();
+    if (!handle) {
+      showLogin('ハンドルを入力してください');
+      return;
+    }
+    el.oauthBtn.disabled = true;
+    apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ handle: handle }) })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.url) {
+          el.oauthBtn.disabled = false;
+          showLogin('アカウントを解決できませんでした。ハンドルを確認してください。');
+          return;
+        }
+        // 認可のため利用者の PDS へ遷移する。
+        location.href = data.url;
+      })
+      .catch(function () {
+        el.oauthBtn.disabled = false;
+        showLogin('サーバーに接続できません');
+      });
+  });
+
+  el.handleInput.addEventListener('keydown', function (evt) {
+    if (evt.key === 'Enter') el.oauthBtn.click();
+  });
+
   el.connectBtn.addEventListener('click', function () {
     var token = el.tokenInput.value || '';
     el.connectBtn.disabled = true;
@@ -690,14 +723,55 @@ revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
     startPolling();
   }
 
+  // サーバーが受け付ける認証方式を問い合わせ、ログイン画面を出し分ける。
+  function applyAuthConfig() {
+    return fetch('/api/auth/config', { credentials: 'same-origin' })
+      .then(function (res) { return res.ok ? res.json() : { token: true, oauth: false }; })
+      .catch(function () { return { token: true, oauth: false }; })
+      .then(function (cfg) {
+        el.oauthLogin.hidden = !cfg.oauth;
+        el.tokenLogin.hidden = !cfg.token;
+        el.loginDivider.hidden = !(cfg.oauth && cfg.token);
+      });
+  }
+
+  // OAuth のコールバックはリダイレクトで戻るため、クエリでエラーを受け取る。
+  function readAuthError() {
+    var params = new URLSearchParams(location.search);
+    var err = params.get('error');
+    if (!err) return '';
+    // 履歴に残さないよう、読み取ったら URL から取り除く。
+    history.replaceState(null, '', location.pathname);
+    if (err === 'not_allowed') {
+      return 'このアカウントは管理を許可されていません。主催者に ADMIN_ACTORS への追加を依頼してください。';
+    }
+    return 'ログインに失敗しました。もう一度お試しください。';
+  }
+
   function init() {
-    var savedToken = loadToken();
-    currentToken = savedToken;
-    // トークンが空でもローカル運用では接続可能なので、
-    // 保存済みトークンが空文字列であっても自動接続を試みる。
-    // ただし一度も接続操作をしていない初回起動時は入力画面を出す。
-    showLogin();
-    el.tokenInput.value = savedToken;
+    removeToken(); // 旧バージョンが localStorage に残したトークンを掃除する
+
+    var authError = readAuthError();
+
+    applyAuthConfig().then(function () {
+      if (authError) {
+        showLogin(authError);
+        return;
+      }
+      // OAuth のコールバックから戻ってきた直後は、既にセッション Cookie がある。
+      // 有効なら入力画面を出さずにそのまま管理画面へ入る。
+      apiFetch('/api/admin/state')
+        .then(function (res) {
+          if (!res.ok) {
+            showLogin();
+            return;
+          }
+          connect();
+        })
+        .catch(function () {
+          showLogin();
+        });
+    });
   }
 
   init();

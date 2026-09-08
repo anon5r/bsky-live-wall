@@ -22,6 +22,9 @@ export interface AdminSession {
   ip: string;
   /** 発行時の User-Agent (先頭のみ)。監査用 */
   userAgent: string;
+  /** OAuth でログインした場合の本人。トークンログインでは undefined。 */
+  did?: string;
+  handle?: string;
 }
 
 export class AdminSessionStore {
@@ -32,7 +35,11 @@ export class AdminSessionStore {
     this.ttlMs = Math.max(1, ttlHours) * 3_600_000;
   }
 
-  create(ip: string, userAgent: string): AdminSession {
+  create(
+    ip: string,
+    userAgent: string,
+    identity?: { did: string; handle: string }
+  ): AdminSession {
     this.pruneExpired();
     const now = Date.now();
     const session: AdminSession = {
@@ -41,6 +48,7 @@ export class AdminSessionStore {
       expiresAt: now + this.ttlMs,
       ip,
       userAgent: userAgent.slice(0, 120),
+      ...(identity ? { did: identity.did, handle: identity.handle } : {}),
     };
     this.sessions.set(session.id, session);
     return session;
@@ -60,6 +68,18 @@ export class AdminSessionStore {
 
   revoke(id: string): boolean {
     return this.sessions.delete(id);
+  }
+
+  /** 特定の DID のセッションをすべて失効させる。許可リストから外したときに使う。 */
+  revokeByDid(did: string): number {
+    let count = 0;
+    for (const [id, session] of this.sessions) {
+      if (session.did === did) {
+        this.sessions.delete(id);
+        count += 1;
+      }
+    }
+    return count;
   }
 
   /** 全セッションを失効させる。トークン漏洩時の緊急手段。 */

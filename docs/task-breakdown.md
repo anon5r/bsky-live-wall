@@ -37,7 +37,13 @@ Cookie 認証では状態変更操作に `X-Requested-With: bsky-live-wall` ヘ�
 
 | メソッド | パス | body | 説明 |
 | --- | --- | --- | --- |
-| POST | `/api/admin/session` | `{ token: string }` | ログイン。HttpOnly Cookie を発行 |
+| GET | `/api/auth/config` | - | 受け付ける認証方式 (`{ oauth, token }`) |
+| POST | `/api/auth/login` | `{ handle: string }` | OAuth の認可 URL を返す |
+| GET | `/api/auth/callback` | - | OAuth のコールバック。許可リスト照合後にセッション発行 |
+| GET | `/client-metadata.json` | - | OAuth クライアントメタデータ |
+| GET | `/api/admin/actors` | - | 管理を許可されたアカウント一覧 |
+| POST | `/api/admin/actors/reload` | - | 許可リスト再読み込み (外れたアカウントは即失効) |
+| POST | `/api/admin/session` | `{ token: string }` | トークンログイン。HttpOnly Cookie を発行 |
 | DELETE | `/api/admin/session` | - | ログアウト |
 | GET | `/api/admin/sessions` | - | ログイン中のセッション一覧 |
 | POST | `/api/admin/sessions/revoke-all` | - | 全セッション失効 |

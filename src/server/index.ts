@@ -7,6 +7,8 @@ import type { AppConfig } from '../shared/config.js';
 import type { WallSource } from '../shared/contracts.js';
 import { createLogger } from '../shared/logger.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerOAuthRoutes } from './routes/oauth.js';
+import { AdminSessionStore } from './admin-session.js';
 import { registerFeedGeneratorRoutes } from './routes/feed-generator.js';
 import { registerPostsRoutes } from './routes/posts.js';
 import { registerStreamRoutes } from './routes/stream.js';
@@ -24,6 +26,9 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
 
   const hub = new SseHub();
 
+  // 管理セッションはトークンログインと OAuth ログインで共有する。
+  const sessions = new AdminSessionStore(config.admin.sessionTtlHours);
+
   // `/api/*` は SSE も含めキャッシュさせない。
   app.addHook('onRequest', (request, reply, done) => {
     if (request.url.startsWith('/api/')) {
@@ -34,7 +39,8 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
 
   registerStreamRoutes(app, config, source, hub);
   registerPostsRoutes(app, config, source, hub);
-  registerAdminRoutes(app, config, source);
+  registerAdminRoutes(app, config, source, sessions);
+  await registerOAuthRoutes(app, config, sessions);
 
   if (config.feedGenerator.enabled) {
     registerFeedGeneratorRoutes(app, config, source);

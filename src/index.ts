@@ -44,6 +44,28 @@ async function main(): Promise<void> {
     );
   }
 
+  // OAuth を使う場合の必須設定を起動時に検証する。
+  if (config.admin.authMode === 'oauth' || config.admin.authMode === 'both') {
+    if (config.oauth.publicUrl === '') {
+      log.error('AUTH_MODE に oauth を指定した場合、PUBLIC_URL が必須です (例: https://wall.example.com)');
+      process.exit(1);
+    }
+    if (!/^https:\/\//.test(config.oauth.publicUrl) && !config.oauth.allowHttp) {
+      log.error(
+        'PUBLIC_URL は https である必要があります。' +
+          'localhost での開発時のみ OAUTH_ALLOW_HTTP=true で回避できます。'
+      );
+      process.exit(1);
+    }
+    if (config.admin.allowedActors.length === 0) {
+      log.error(
+        'AUTH_MODE に oauth を指定した場合、ADMIN_ACTORS が必須です。' +
+          '空のままでは誰もログインできません (例: ADMIN_ACTORS=alice.bsky.social)'
+      );
+      process.exit(1);
+    }
+  }
+
   const source = createWallSource(config);
   const server = await createServer(config, source);
 

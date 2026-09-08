@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import type { ModerationMode } from './types.js';
 
+/** 管理画面の認証方式。 */
+export type AuthMode = 'token' | 'oauth' | 'both';
+
 /** 環境変数から組み立てるアプリケーション設定。既定値はすべてここで一元管理する。 */
 export interface AppConfig {
   event: {
@@ -48,6 +51,19 @@ export interface AppConfig {
     token: string;
     /** 管理セッションの有効時間 (時間)。イベントの最大長に合わせる。 */
     sessionTtlHours: number;
+    /** 認証方式。oauth では AT Protocol アカウントでログインする。 */
+    authMode: AuthMode;
+    /**
+     * 管理を許可するアカウント (ハンドルまたは DID)。招待制の実体。
+     * OAuth で本人確認できても、ここに載っていなければ管理できない。
+     */
+    allowedActors: string[];
+  };
+  oauth: {
+    /** 公開 URL。client_id とリダイレクト先の組み立てに使う。 */
+    publicUrl: string;
+    /** 開発時に http を許可する。localhost 以外では使わない。 */
+    allowHttp: boolean;
   };
   appview: {
     url: string;
@@ -163,6 +179,16 @@ export function loadConfig(): AppConfig {
     admin: {
       token: str('ADMIN_TOKEN', ''),
       sessionTtlHours: num('ADMIN_SESSION_TTL_HOURS', 12),
+      authMode: (['token', 'oauth', 'both'] as const).includes(
+        str('AUTH_MODE', 'token') as AuthMode
+      )
+        ? (str('AUTH_MODE', 'token') as AuthMode)
+        : 'token',
+      allowedActors: list('ADMIN_ACTORS').map((a) => a.replace(/^@/, '').toLowerCase()),
+    },
+    oauth: {
+      publicUrl: str('PUBLIC_URL', '').replace(/\/+$/, ''),
+      allowHttp: bool('OAUTH_ALLOW_HTTP', false),
     },
     appview: {
       url: str('APPVIEW_URL', 'https://public.api.bsky.app').replace(/\/+$/, ''),

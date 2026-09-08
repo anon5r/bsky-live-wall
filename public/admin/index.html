@@ -19,13 +19,33 @@
   <section id="login-screen" class="login-screen">
     <div class="login-card">
       <h1>Bluesky Live Wall 管理画面</h1>
-      <p class="login-desc">ADMIN_TOKEN を入力してください。未設定 (ローカル運用) の場合は空のまま接続できます。</p>
-      <label for="token-input">ADMIN_TOKEN</label>
-      <input type="password" id="token-input" autocomplete="off" placeholder="トークンを入力 (任意)" />
       <div id="login-error" class="login-error" hidden></div>
-      <div class="login-actions">
-        <button id="connect-btn" class="btn btn-primary btn-large">接続</button>
-        <button id="clear-token-btn" class="btn btn-ghost">トークンを消去</button>
+
+      <!-- AT Protocol OAuth によるログイン -->
+      <div id="oauth-login" class="login-method" hidden>
+        <p class="login-desc">Bluesky のアカウントでログインします。</p>
+        <label for="handle-input">ハンドル または DID</label>
+        <input type="text" id="handle-input" autocomplete="username" inputmode="url"
+               placeholder="alice.bsky.social" />
+        <div class="login-actions">
+          <button id="oauth-btn" class="btn btn-primary btn-large">Bluesky でログイン</button>
+        </div>
+        <p class="login-note">
+          パスワードはこのサイトに入力しません。認証はご自身の PDS で行われます。
+        </p>
+      </div>
+
+      <div id="login-divider" class="login-divider" hidden><span>または</span></div>
+
+      <!-- ADMIN_TOKEN によるログイン -->
+      <div id="token-login" class="login-method" hidden>
+        <p class="login-desc">ADMIN_TOKEN を入力してください。未設定 (ローカル運用) の場合は空のまま接続できます。</p>
+        <label for="token-input">ADMIN_TOKEN</label>
+        <input type="password" id="token-input" autocomplete="off" placeholder="トークンを入力 (任意)" />
+        <div class="login-actions">
+          <button id="connect-btn" class="btn btn-primary btn-large">接続</button>
+          <button id="clear-token-btn" class="btn btn-ghost">トークンを消去</button>
+        </div>
       </div>
     </div>
   </section>

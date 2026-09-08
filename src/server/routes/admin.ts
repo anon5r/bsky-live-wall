@@ -99,11 +99,16 @@ function recordAudit(
   action: string,
   detail: string,
   request: FastifyRequest,
-  actorOverride?: string
+  actorOverride?: string,
+  sessions?: AdminSessionStore
 ): void {
   const sessionId = readCookie(request.headers.cookie, SESSION_COOKIE);
-  // ログイン時点ではまだ Cookie が無いため、呼び出し側から actor を渡せるようにする。
-  const actor = actorOverride ?? (sessionId ? `session:${sessionId.slice(0, 8)}` : 'bearer');
+  const session = sessions?.verify(sessionId);
+  // OAuth ログインならハンドルで記録する。誰の操作かを人間が読める形で残すため。
+  const actor =
+    actorOverride ??
+    session?.handle ??
+    (sessionId ? `session:${sessionId.slice(0, 8)}` : 'bearer');
   auditLog.unshift({ at: Date.now(), action, detail, ip: request.ip, actor });
   if (auditLog.length > AUDIT_LIMIT) auditLog.length = AUDIT_LIMIT;
   logger.info(`管理操作: ${action}`, { detail, ip: request.ip, actor });
@@ -113,9 +118,11 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   config: AppConfig,
   source: WallSource,
+  sessions: AdminSessionStore,
 ): void {
-  const sessions = new AdminSessionStore(config.admin.sessionTtlHours);
-
+  /** トークンによるログイン・Bearer 認証が有効か。 */
+  const tokenAuthEnabled =
+    config.admin.authMode === 'token' || config.admin.authMode === 'both';
   /**
    * ログイン不要で通してよい経路 (ログイン API 自身のみ)。
    * startsWith にすると /api/admin/sessions/revoke-all まで素通りするため、
@@ -166,6 +173,11 @@ export function registerAdminRoutes(
     }
 
     // 2. Bearer トークン (スクリプト・監視用)
+    if (!tokenAuthEnabled) {
+      recordAuthFailure(ip);
+      unauthorized(reply);
+      return;
+    }
     const header = request.headers.authorization ?? '';
     const match = /^Bearer (.+)$/.exec(header);
     if (!match || !match[1] || !tokenMatches(match[1], token)) {
@@ -194,6 +206,12 @@ export function registerAdminRoutes(
     if (isRateLimited(ip)) {
       logger.warn('ログイン試行が続いたため一時的に拒否', { ip });
       return tooManyRequests(reply);
+    }
+
+    if (!tokenAuthEnabled) {
+      return reply
+        .code(400)
+        .send({ error: 'token_auth_disabled', message: 'AUTH_MODE=oauth ではトークンログインは使えません' });
     }
 
     const configured = config.admin.token;
@@ -233,7 +251,7 @@ export function registerAdminRoutes(
     const id = readCookie(request.headers.cookie, SESSION_COOKIE);
     if (id) sessions.revoke(id);
     reply.header('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
-    recordAudit('logout', '', request);
+    recordAudit('logout', '', request, undefined, sessions);
     return reply.send({ ok: true });
   });
 
@@ -245,6 +263,8 @@ export function registerAdminRoutes(
       expiresAt: s.expiresAt,
       ip: s.ip,
       userAgent: s.userAgent,
+      handle: s.handle ?? null,
+      did: s.did ?? null,
     }));
     return reply.send({ sessions: list, ttlHours: config.admin.sessionTtlHours });
   });
@@ -252,7 +272,7 @@ export function registerAdminRoutes(
   app.post('/api/admin/sessions/revoke-all', async (request, reply) => {
     const revoked = sessions.revokeAll();
     reply.header(`Set-Cookie`, `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
-    recordAudit('revoke-all-sessions', `${revoked} 件`, request);
+    recordAudit('revoke-all-sessions', `${revoked} 件`, request, undefined, sessions);
     return reply.send({ revoked });
   });
 
@@ -276,7 +296,7 @@ export function registerAdminRoutes(
     if (typeof paused !== 'boolean') {
       return badRequest(reply, 'paused は boolean で指定してください');
     }
-    recordAudit('pause', String(paused), request);
+    recordAudit('pause', String(paused), request, undefined, sessions);
     const state = source.setPaused(paused);
     return reply.send({ state });
   });
@@ -286,7 +306,7 @@ export function registerAdminRoutes(
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
-    recordAudit('hide', uri, request);
+    recordAudit('hide', uri, request, undefined, sessions);
     const ok = source.hide(uri);
     return reply.send({ ok });
   });
@@ -296,7 +316,7 @@ export function registerAdminRoutes(
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
-    recordAudit('unhide', uri, request);
+    recordAudit('unhide', uri, request, undefined, sessions);
     const ok = source.unhide(uri);
     return reply.send({ ok });
   });
@@ -306,7 +326,7 @@ export function registerAdminRoutes(
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
-    recordAudit('approve', uri, request);
+    recordAudit('approve', uri, request, undefined, sessions);
     const ok = source.approve(uri);
     return reply.send({ ok });
   });
@@ -316,7 +336,7 @@ export function registerAdminRoutes(
     if (typeof did !== 'string' || did === '') {
       return badRequest(reply, 'did は空でない文字列で指定してください');
     }
-    recordAudit('block', did, request);
+    recordAudit('block', did, request, undefined, sessions);
     const removed = source.blockActor(did);
     return reply.send({ removed });
   });
@@ -326,13 +346,13 @@ export function registerAdminRoutes(
     if (typeof did !== 'string' || did === '') {
       return badRequest(reply, 'did は空でない文字列で指定してください');
     }
-    recordAudit('unblock', did, request);
+    recordAudit('unblock', did, request, undefined, sessions);
     const restored = source.unblockActor(did);
     return reply.send({ restored });
   });
 
   app.post('/api/admin/clear', async (request, reply) => {
-    recordAudit('clear', '', request);
+    recordAudit('clear', '', request, undefined, sessions);
     source.clear();
     return reply.send({ ok: true });
   });

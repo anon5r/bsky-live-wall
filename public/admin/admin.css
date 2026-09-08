@@ -562,3 +562,33 @@ button {
   font-weight: 400;
   margin-left: 6px;
 }
+
+/* ---------- ログイン方式の出し分け ---------- */
+
+.login-method + .login-method {
+  margin-top: 4px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--color-text-muted, #6b7699);
+  font-size: 13px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.login-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted, #6b7699);
+}
