@@ -1,0 +1,418 @@
+/*
+ * Bluesky Live Wall - 会場モニター表示用スタイル
+ * - 会場後方 (5〜15m) からの視認性を最優先。文字は vh ベースで拡縮。
+ * - 4K (3840x2160) / FHD (1920x1080) の両方で破綻しないことを確認済みの前提で clamp() を多用。
+ * - プロジェクタでの潰れを避けるため、影・ぼかしは最小限。コントラスト優先。
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- ダークテーマ (既定) ---- */
+  --bg-top: #060a16;
+  --bg-bottom: #0c1230;
+  --surface: #141a33;
+  --surface-border: rgba(140, 170, 255, 0.22);
+  --surface-strong: #1b2242;
+  --text-primary: #f4f7ff;
+  --text-secondary: #9aa8d6;
+  --text-muted: #6c78a3;
+  --accent: #2f9bff;
+  --accent-strong: #6ec1ff;
+  --accent-contrast: #04101f;
+  --danger: #ff5c7a;
+  --ok: #34d399;
+  --warn: #ffcc4d;
+  --shadow: rgba(0, 0, 0, 0.35);
+
+  /* ---- サイズ計算 (会場後方視認性) ---- */
+  --body-font-size: clamp(20px, 2.6vh, 40px);
+  --name-font-size: clamp(24px, 3.2vh, 48px);
+  --handle-font-size: clamp(14px, 1.7vh, 26px);
+  --meta-font-size: clamp(13px, 1.5vh, 24px);
+  --header-title-size: clamp(26px, 3.4vh, 52px);
+  --header-sub-size: clamp(14px, 1.6vh, 26px);
+  --tag-font-size: clamp(14px, 1.8vh, 28px);
+  --clock-font-size: clamp(16px, 2vh, 32px);
+
+  --columns: 3;
+  --card-gap: clamp(10px, 1.4vh, 24px);
+  --radius: clamp(10px, 1vh, 18px);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-top: #eef3ff;
+  --bg-bottom: #dbe6ff;
+  --surface: #ffffff;
+  --surface-border: rgba(20, 40, 90, 0.14);
+  --surface-strong: #f2f6ff;
+  --text-primary: #101832;
+  --text-secondary: #3d4a75;
+  --text-muted: #6b7699;
+  --accent: #0072e5;
+  --accent-strong: #005bb8;
+  --accent-contrast: #ffffff;
+  --danger: #d6294a;
+  --ok: #0a9a68;
+  --warn: #a86a00;
+  --shadow: rgba(20, 40, 90, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN',
+    'Yu Gothic UI', 'Yu Gothic', Meiryo, 'Noto Sans JP', 'Segoe UI', Roboto, sans-serif;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ---------------- ヘッダー ---------------- */
+
+#header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 2vw, 40px);
+  padding: clamp(10px, 1.6vh, 28px) clamp(20px, 2.4vw, 48px);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0));
+  border-bottom: 1px solid var(--surface-border);
+}
+
+:root[data-theme='light'] #header {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0));
+}
+
+.header-left {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+#event-title {
+  margin: 0;
+  font-size: var(--header-title-size);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(90deg, var(--text-primary), var(--accent-strong));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  margin: 0.2em 0 0;
+  font-size: var(--header-sub-size);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-tags {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.tag-pill {
+  font-size: var(--tag-font-size);
+  font-weight: 700;
+  color: var(--accent-contrast);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  padding: 0.25em 0.9em;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.header-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 2vw, 36px);
+}
+
+.stat-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+}
+
+.stat-value {
+  font-size: clamp(24px, 3vh, 46px);
+  font-weight: 800;
+  color: var(--accent-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: var(--meta-font-size);
+  color: var(--text-muted);
+}
+
+.status-block {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: var(--meta-font-size);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: clamp(10px, 1.2vh, 18px);
+  height: clamp(10px, 1.2vh, 18px);
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--text-muted);
+}
+
+.status-connected {
+  background: var(--ok);
+  box-shadow: 0 0 0.6em var(--ok);
+}
+
+.status-connecting {
+  background: var(--warn);
+  box-shadow: 0 0 0.6em var(--warn);
+}
+
+.status-disconnected {
+  background: var(--danger);
+  box-shadow: 0 0 0.6em var(--danger);
+}
+
+.clock {
+  font-size: var(--clock-font-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-width: 3.5ch;
+}
+
+/* ---------------- ウォール本体 ---------------- */
+
+.wall-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(var(--columns), 1fr);
+  gap: var(--card-gap);
+  padding: clamp(12px, 1.8vh, 28px) clamp(20px, 2.4vw, 48px);
+  overflow: hidden;
+  align-content: start;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: clamp(12px, 1.6vh, 26px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 0.9vh, 14px);
+  min-width: 0;
+  box-shadow: 0 6px 18px var(--shadow);
+  animation: card-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.card.card-removing {
+  animation: card-out 0.4s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes card-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+  .card.card-removing {
+    animation: none;
+    opacity: 0;
+    transition: opacity 0.2s linear;
+  }
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1vw, 18px);
+  min-width: 0;
+}
+
+.avatar {
+  width: clamp(40px, 5.2vh, 84px);
+  height: clamp(40px, 5.2vh, 84px);
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  background: var(--surface-strong);
+  border: 1px solid var(--surface-border);
+}
+
+.avatar-fallback {
+  width: clamp(40px, 5.2vh, 84px);
+  height: clamp(40px, 5.2vh, 84px);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: clamp(18px, 2.4vh, 36px);
+  color: var(--accent-contrast);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+}
+
+.name-block {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.display-name {
+  font-size: var(--name-font-size);
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.handle {
+  font-size: var(--handle-font-size);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.post-body {
+  font-size: var(--body-font-size);
+  line-height: 1.42;
+  color: var(--text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.post-body .hl-tag {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.post-body .hl-url {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.image-grid {
+  display: grid;
+  gap: clamp(4px, 0.6vh, 10px);
+  grid-template-columns: repeat(2, 1fr);
+  border-radius: calc(var(--radius) * 0.7);
+  overflow: hidden;
+}
+
+.image-grid.count-1 {
+  grid-template-columns: 1fr;
+}
+
+.image-grid img {
+  width: 100%;
+  height: clamp(70px, 12vh, 220px);
+  object-fit: cover;
+  background: var(--surface-strong);
+  display: block;
+}
+
+.image-grid.count-1 img {
+  height: clamp(90px, 18vh, 320px);
+}
+
+.card-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--meta-font-size);
+  color: var(--text-muted);
+}
+
+/* ---------------- 待機画面 ---------------- */
+
+.waiting-screen {
+  position: absolute;
+  inset: 0;
+  top: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  text-align: center;
+  padding: 0 5vw;
+  pointer-events: none;
+}
+
+.waiting-screen.visible {
+  display: flex;
+}
+
+.waiting-message {
+  margin: 0;
+  font-size: clamp(32px, 5.5vh, 90px);
+  font-weight: 800;
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+.waiting-hint {
+  margin: 0;
+  font-size: clamp(18px, 2.6vh, 42px);
+  color: var(--accent-strong);
+  font-weight: 700;
+}

@@ -1,0 +1,514 @@
+/* ==========================================================
+   Bluesky Live Wall - 管理画面スタイル
+   運営が長時間見ても疲れない実務的な UI を目指す。
+   ライトテーマ既定、[data-theme="dark"] で上書き。
+   ========================================================== */
+
+:root {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f0f1f4;
+  --color-border: #d9dce1;
+  --color-text: #1c1f26;
+  --color-text-muted: #5c6370;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-neutral: #6b7280;
+  --color-neutral-hover: #4b5563;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-shadow: rgba(20, 24, 33, 0.08);
+  --radius: 8px;
+}
+
+[data-theme="dark"] {
+  --color-bg: #14161a;
+  --color-surface: #1d2026;
+  --color-surface-alt: #24272e;
+  --color-border: #33363e;
+  --color-text: #e7e9ee;
+  --color-text-muted: #9298a4;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-neutral: #7d8492;
+  --color-neutral-hover: #9aa1ad;
+  --color-danger: #ef4444;
+  --color-danger-hover: #f87171;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-shadow: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #14161a;
+    --color-surface: #1d2026;
+    --color-surface-alt: #24272e;
+    --color-border: #33363e;
+    --color-text: #e7e9ee;
+    --color-text-muted: #9298a4;
+    --color-primary: #3b82f6;
+    --color-primary-hover: #60a5fa;
+    --color-neutral: #7d8492;
+    --color-neutral-hover: #9aa1ad;
+    --color-danger: #ef4444;
+    --color-danger-hover: #f87171;
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-shadow: rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-warning);
+  color: #1c1f26;
+  padding: 10px 20px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  z-index: 1000;
+  box-shadow: 0 4px 16px var(--color-shadow);
+  max-width: 90vw;
+}
+
+/* ---------- 一時停止バナー ---------- */
+.pause-banner {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  background: var(--color-danger);
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  padding: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- ログイン画面 ---------- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 32px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 4px 24px var(--color-shadow);
+}
+
+.login-card h1 {
+  margin: 0 0 12px;
+  font-size: 1.4rem;
+}
+
+.login-desc {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+}
+
+.login-card label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--color-text-muted);
+}
+
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 14px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.login-error {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin: 6px 0 12px;
+  font-weight: 600;
+}
+
+.login-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+/* ---------- ボタン共通 ---------- */
+.btn {
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  transition: background-color 0.15s ease, transform 0.05s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--color-primary-hover); }
+
+.btn-neutral {
+  background: var(--color-neutral);
+  color: #fff;
+}
+.btn-neutral:hover { background: var(--color-neutral-hover); }
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+.btn-danger:hover { background: var(--color-danger-hover); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+.btn-ghost:hover {
+  color: var(--color-text);
+  background: var(--color-surface-alt);
+}
+
+.btn-large {
+  min-height: 52px;
+  font-size: 1.05rem;
+  flex: 1;
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.btn-confirming {
+  background: var(--color-danger) !important;
+  color: #fff !important;
+  animation: pulse-confirm 0.9s ease-in-out infinite;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ---------- アプリ全体レイアウト ---------- */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.app-header h1 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.app-header-sub {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.app-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 20px 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1023px) {
+  .main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-count {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* ---------- 状態パネル ---------- */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+  margin-bottom: 16px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-value {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  width: fit-content;
+}
+
+.badge-ok {
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--color-success);
+}
+.badge-error {
+  background: rgba(220, 38, 38, 0.15);
+  color: var(--color-danger);
+}
+.badge-unknown {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.stat-box {
+  background: var(--color-surface-alt);
+  border-radius: var(--radius);
+  padding: 10px;
+  text-align: center;
+}
+
+.stat-num {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 操作パネル ---------- */
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.control-row:last-child { border-bottom: none; }
+
+.control-label {
+  font-weight: 600;
+}
+
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  min-height: 44px;
+}
+
+.toggle-track {
+  width: 52px;
+  height: 30px;
+  background: var(--color-success);
+  border-radius: 999px;
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+
+.toggle-btn[aria-pressed="true"] .toggle-track {
+  background: var(--color-danger);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.toggle-btn[aria-pressed="true"] .toggle-thumb {
+  transform: translateX(22px);
+}
+
+.toggle-text {
+  font-weight: 600;
+  min-width: 60px;
+  text-align: left;
+}
+
+/* ---------- 投稿リスト ---------- */
+.post-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 640px;
+  overflow-y: auto;
+}
+
+.empty-msg {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.post-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--color-surface-alt);
+}
+
+.post-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.post-author {
+  font-weight: 700;
+}
+
+.post-handle {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.post-time {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.post-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+
+.post-meta {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.post-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

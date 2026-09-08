@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bluesky Live Wall - 管理画面</title>
+<link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <!-- トースト風エラーバナー (ネットワークエラー等) -->
+  <div id="toast" class="toast" hidden role="alert"></div>
+
+  <!-- 一時停止中に表示する警告バー -->
+  <div id="pause-banner" class="pause-banner" hidden>
+    一時停止中 - 会場モニターへの新規表示は止まっています
+  </div>
+
+  <!-- トークン入力画面 -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h1>Bluesky Live Wall 管理画面</h1>
+      <p class="login-desc">ADMIN_TOKEN を入力してください。未設定 (ローカル運用) の場合は空のまま接続できます。</p>
+      <label for="token-input">ADMIN_TOKEN</label>
+      <input type="password" id="token-input" autocomplete="off" placeholder="トークンを入力 (任意)" />
+      <div id="login-error" class="login-error" hidden></div>
+      <div class="login-actions">
+        <button id="connect-btn" class="btn btn-primary btn-large">接続</button>
+        <button id="clear-token-btn" class="btn btn-ghost">トークンを消去</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- メイン管理画面 -->
+  <div id="app" class="app" hidden>
+    <header class="app-header">
+      <div class="app-header-title">
+        <h1>Bluesky Live Wall <span class="app-header-sub">管理画面</span></h1>
+      </div>
+      <div class="app-header-actions">
+        <button id="open-wall-btn" class="btn btn-neutral">会場モニターを開く</button>
+        <button id="theme-toggle-btn" class="btn btn-ghost" title="テーマ切替">テーマ</button>
+        <button id="logout-btn" class="btn btn-ghost">トークンを消去</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <!-- 状態パネル -->
+      <section class="panel panel-status">
+        <h2 class="panel-title">状態</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">Jetstream</span>
+            <span id="js-connected" class="status-value badge badge-unknown">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">接続先ホスト</span>
+            <span id="js-host" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">再接続回数</span>
+            <span id="js-reconnects" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">監視ハッシュタグ</span>
+            <span id="hashtags" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">モデレーションモード</span>
+            <span id="mod-mode" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">稼働時間</span>
+            <span id="uptime" class="status-value">-</span>
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span id="stat-matched" class="stat-num">0</span>
+            <span class="stat-label">一致件数</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-displayed" class="stat-num">0</span>
+            <span class="stat-label">表示件数</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-rejected" class="stat-num">0</span>
+            <span class="stat-label">除外件数</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-authors" class="stat-num">0</span>
+            <span class="stat-label">投稿者数</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 一時停止 / 全消去 パネル -->
+      <section class="panel panel-controls">
+        <h2 class="panel-title">操作</h2>
+        <div class="control-row">
+          <span class="control-label">ウォールの一時停止</span>
+          <button id="pause-toggle" class="toggle-btn" aria-pressed="false">
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span id="pause-toggle-label" class="toggle-text">稼働中</span>
+          </button>
+        </div>
+        <div class="control-row">
+          <span class="control-label">表示中の全消去</span>
+          <button id="clear-all-btn" class="btn btn-danger">全消去</button>
+        </div>
+      </section>
+
+      <!-- 承認待ちリスト -->
+      <section id="pending-panel" class="panel panel-pending" hidden>
+        <h2 class="panel-title">承認待ち <span id="pending-count" class="panel-count">0</span></h2>
+        <ul id="pending-list" class="post-list"></ul>
+        <p id="pending-empty" class="empty-msg">承認待ちの投稿はありません。</p>
+      </section>
+
+      <!-- 直近投稿リスト -->
+      <section class="panel panel-recent">
+        <h2 class="panel-title">直近の投稿 <span id="recent-count" class="panel-count">0</span></h2>
+        <ul id="recent-list" class="post-list"></ul>
+        <p id="recent-empty" class="empty-msg">まだ投稿がありません。</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

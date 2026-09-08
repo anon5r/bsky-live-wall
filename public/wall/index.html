@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bluesky Live Wall</title>
+<link rel="stylesheet" href="wall.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <div class="header-left">
+        <h1 id="event-title">Bluesky Live Wall</h1>
+        <p id="event-subtitle" class="subtitle"></p>
+      </div>
+      <div class="header-tags" id="hashtags" aria-label="監視中のハッシュタグ"></div>
+      <div class="header-right">
+        <div class="stat-block">
+          <span class="stat-value" id="stat-displayed">0</span>
+          <span class="stat-label">件の投稿</span>
+        </div>
+        <div class="status-block">
+          <span id="status-dot" class="status-dot status-connecting" aria-hidden="true"></span>
+          <span id="status-text">接続待ち</span>
+        </div>
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <main id="wall" class="wall-grid" aria-live="polite"></main>
+
+    <section id="waiting-screen" class="waiting-screen">
+      <p class="waiting-message">投稿を待っています</p>
+      <p class="waiting-hint" id="waiting-hint"></p>
+    </section>
+  </div>
+
+  <script src="wall.js"></script>
+</body>
+</html>
