@@ -1,4 +1,4 @@
-# bsky-live-wall
+# Bsky Live Wall
 
 Bluesky の特定ハッシュタグ付き投稿を **Jetstream v2** からリアルタイム受信し、
 イベント会場のモニター／スクリーンに大きく流し続けるライブウォールです。
