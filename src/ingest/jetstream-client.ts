@@ -30,6 +30,10 @@ export class JetstreamClient extends EventEmitter {
   private readonly reconnectMaxMs: number;
   private readonly hostFailoverAfter: number;
   private readonly replayWindowSec: number;
+  /** 起動時に遡る分数。0 なら現在から購読する。 */
+  private readonly startupBackfillMinutes: number;
+  /** 初回接続かどうか。バックフィル用カーソルは初回のみ使う。 */
+  private firstConnect = true;
 
   private ws: WebSocket | null = null;
   private stopped = true;
@@ -61,6 +65,7 @@ export class JetstreamClient extends EventEmitter {
     this.reconnectMaxMs = config.reconnectMaxMs;
     this.hostFailoverAfter = config.hostFailoverAfter;
     this.replayWindowSec = config.replayWindowSec;
+    this.startupBackfillMinutes = config.startupBackfillMinutes;
   }
 
   start(): void {
@@ -93,12 +98,27 @@ export class JetstreamClient extends EventEmitter {
   private buildUrl(): string {
     const params = new URLSearchParams();
     params.set('wantedCollections', WANTED_COLLECTION);
+    const cursor = this.resolveCursor();
+    if (cursor !== null) params.set('cursor', String(cursor));
+    return `wss://${this.currentHost}/subscribe?${params.toString()}`;
+  }
+
+  /**
+   * 接続に使うカーソル (マイクロ秒) を決める。
+   * - 初回かつ STARTUP_BACKFILL_MINUTES > 0: 指定分だけ過去から再生する (バックフィル)
+   * - 再接続時: 最後に受信した time_us から replayWindowSec 秒だけ巻き戻す (取りこぼし補填)
+   * Jetstream 側の保持期間はおよそ 36 時間で、それより古いカーソルは保持境界に丸められる。
+   */
+  private resolveCursor(): number | null {
+    if (this.firstConnect) {
+      if (this.startupBackfillMinutes <= 0) return null;
+      return (Date.now() - this.startupBackfillMinutes * 60_000) * 1_000;
+    }
     if (this.replayWindowSec > 0 && this.lastTimeUs !== null) {
       const rewindUs = this.replayWindowSec * 1_000_000;
-      const cursor = Math.max(0, this.lastTimeUs - rewindUs);
-      params.set('cursor', String(cursor));
+      return Math.max(0, this.lastTimeUs - rewindUs);
     }
-    return `wss://${this.currentHost}/subscribe?${params.toString()}`;
+    return null;
   }
 
   private connect(): void {
@@ -119,6 +139,10 @@ export class JetstreamClient extends EventEmitter {
       this.consecutiveFailures = 0;
       this.reconnectAttempt = 0;
       this.armWatchdog();
+      if (this.firstConnect && this.startupBackfillMinutes > 0) {
+        log.info(`過去 ${this.startupBackfillMinutes} 分を再生します (バックフィル)`);
+      }
+      this.firstConnect = false;
       log.info(`Jetstream 接続成功: ${this.currentHost}`);
       this.emit('open', this.currentHost);
     });
