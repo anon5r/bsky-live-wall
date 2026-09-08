@@ -83,6 +83,8 @@ function badRequest(reply: FastifyReply, message: string): FastifyReply {
 
 /** 監査ログ。誰がいつ何をしたかを追えるようにする。 */
 const AUDIT_LIMIT = 200;
+/** キーワードの最小文字数。短すぎると無関係な投稿を大量に拾う。 */
+const MIN_KEYWORD_LENGTH = 2;
 
 interface AuditEntry {
   at: number;
@@ -357,17 +359,53 @@ export function registerAdminRoutes(
 
   // ---- 監視設定 ----
 
-  app.post<{ Body: { hashtags?: unknown } }>('/api/admin/hashtags', async (request, reply) => {
-    const { hashtags } = request.body ?? {};
-    if (!Array.isArray(hashtags) || hashtags.some((t) => typeof t !== 'string')) {
-      return badRequest(reply, 'hashtags は文字列の配列で指定してください');
+  app.get('/api/admin/terms', async (_request, reply) => reply.send({ terms: source.getTerms() }));
+
+  /** 監視語の一覧をまとめて差し替える。追加・削除はクライアント側で組み立てる。 */
+  app.post<{ Body: { terms?: unknown } }>('/api/admin/terms', async (request, reply) => {
+    const { terms } = request.body ?? {};
+    if (!Array.isArray(terms)) {
+      return badRequest(reply, 'terms は配列で指定してください');
     }
-    const applied = source.setHashtags(hashtags as string[]);
+    // 検証はすべて適用の前に済ませる。
+    // 途中で弾く場合でも、設定を書き換えたあとで 400 を返してはいけない。
+    if (terms.length === 0) {
+      return badRequest(reply, '監視語を 1 つ以上指定してください');
+    }
+    const parsed: { value: string; type: 'hashtag' | 'keyword' }[] = [];
+    for (const entry of terms) {
+      if (typeof entry !== 'object' || entry === null) {
+        return badRequest(reply, 'terms の要素は { value, type } のオブジェクトです');
+      }
+      const { value, type } = entry as { value?: unknown; type?: unknown };
+      if (typeof value !== 'string' || value.trim() === '') {
+        return badRequest(reply, 'value は空でない文字列で指定してください');
+      }
+      if (type !== 'hashtag' && type !== 'keyword') {
+        return badRequest(reply, "type は 'hashtag' か 'keyword' で指定してください");
+      }
+      // キーワードは短すぎると無関係な投稿を大量に拾う。
+      if (type === 'keyword' && value.trim().length < MIN_KEYWORD_LENGTH) {
+        return badRequest(
+          reply,
+          `キーワードは ${MIN_KEYWORD_LENGTH} 文字以上で指定してください: ${value}`
+        );
+      }
+      parsed.push({ value, type });
+    }
+
+    const applied = source.setTerms(parsed);
     if (applied.length === 0) {
-      return badRequest(reply, '有効なハッシュタグが 1 つもありません');
+      return badRequest(reply, '有効な監視語が 1 つもありません');
     }
-    recordAudit('hashtags', applied.join(','), request, undefined, sessions);
-    return reply.send({ hashtags: applied });
+    recordAudit(
+      'terms',
+      applied.map((t) => `${t.type}:${t.value}`).join(','),
+      request,
+      undefined,
+      sessions
+    );
+    return reply.send({ terms: applied });
   });
 
   app.get('/api/admin/jetstream', async (_request, reply) => {

@@ -441,16 +441,30 @@
   // ---------------------------------------------------------------------
   // ヘッダー表示の更新
   // ---------------------------------------------------------------------
-  function renderHashtags(tags) {
-    hashtagsEl.innerHTML = '';
-    (tags || []).forEach((tag) => {
+  /**
+   * 監視対象をヘッダに並べる。
+   * terms が来ていればハッシュタグとキーワードを区別して表示し、
+   * 古い形式 (hashtags のみ) でも動くようにフォールバックする。
+   */
+  function renderHashtags(tags, terms) {
+    const list = Array.isArray(terms) && terms.length > 0
+      ? terms
+      : (tags || []).map((t) => ({ value: t, type: 'hashtag' }));
+
+    hashtagsEl.replaceChildren();
+    list.forEach((term) => {
       const pill = document.createElement('span');
-      pill.className = 'tag-pill';
-      const normalized = tag.startsWith('#') ? tag : '#' + tag;
-      pill.textContent = normalized;
+      pill.className = 'tag-pill tag-pill-' + term.type;
+      pill.textContent =
+        term.type === 'hashtag'
+          ? (term.value.startsWith('#') ? term.value : '#' + term.value)
+          : term.value;
       hashtagsEl.appendChild(pill);
     });
-    renderWaitingScreen(tags || []);
+
+    // 待機画面には、投稿者に付けてもらう必要があるハッシュタグだけを出す。
+    // キーワードは投稿者に入力を促すものではないため含めない。
+    renderWaitingScreen(list.filter((t) => t.type === 'hashtag').map((t) => t.value));
   }
 
   // 待機画面はハッシュタグ本体と補助メッセージを分けて描画する。
@@ -485,7 +499,7 @@
 
     if (Array.isArray(wallState.hashtags)) {
       state.hashtags = wallState.hashtags;
-      renderHashtags(wallState.hashtags);
+      renderHashtags(wallState.hashtags, wallState.terms);
     }
 
     state.paused = !!wallState.paused;

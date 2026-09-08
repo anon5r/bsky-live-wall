@@ -3,9 +3,10 @@
  * WallSource として server 層へ公開する。
  */
 import { EventEmitter } from 'node:events';
-import { normalizeTag, type AppConfig } from '../shared/config.js';
+import { buildTerms, type AppConfig } from '../shared/config.js';
 import type {
   ModListInfo,
+  WatchTerm,
   JetstreamEvent,
   JetstreamStatus,
   WallPost,
@@ -17,6 +18,7 @@ import { JetstreamClient } from './jetstream-client.js';
 import { BackfillReader } from './backfill-reader.js';
 import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
+import { matchKeywords } from './keyword-matcher.js';
 import { evaluate } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
 import { ProfileHydrator } from './profile-hydrator.js';
@@ -28,8 +30,8 @@ const STATE_THROTTLE_MS = 1000;
 const POST_COLLECTION = 'app.bsky.feed.post';
 /** 非表示にした uri を覚えておく上限。超えた分は古いものから捨てる。 */
 const HIDDEN_URI_LIMIT = 5000;
-/** 監視ハッシュタグの上限。無制限に増やせると誤設定で全件一致しかねない。 */
-const MAX_HASHTAGS = 10;
+/** 監視語の上限。無制限に増やせると誤設定で全件一致しかねない。 */
+const MAX_TERMS = 20;
 /** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
 const BACKFILL_DELETED_LIMIT = 50_000;
 
@@ -155,6 +157,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
   getState(): WallState {
     return {
       hashtags: this.config.event.hashtags,
+      terms: this.config.event.terms,
       eventTitle: this.config.event.title,
       eventSubtitle: this.config.event.subtitle,
       paused: this.paused,
@@ -324,7 +327,8 @@ export class WallPipeline extends EventEmitter implements WallSource {
     if (source === 'backfill' && this.backfillDeleted.has(uri)) return; // 既に削除が確認されている。
 
     const matchedTags = matchHashtags(record, this.config.event.normalizedHashtags);
-    if (matchedTags.length === 0) return;
+    const matchedKeywords = matchKeywords(record, this.config.event.terms);
+    if (matchedTags.length === 0 && matchedKeywords.length === 0) return;
 
     this.store.recordMatched();
 
@@ -348,6 +352,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
       record,
       timeUs: event.time_us,
       matchedTags,
+      matchedKeywords,
       showImages: this.config.display.showImages,
       author,
     });
@@ -358,7 +363,14 @@ export class WallPipeline extends EventEmitter implements WallSource {
       return;
     }
 
-    if (this.config.moderation.mode === 'approve') {
+    // ハッシュタグが付いていない投稿は、投稿者がイベントを意識していない可能性がある。
+    // 会場スクリーンに無関係な第三者の投稿を出さないよう、既定では確認を挟む。
+    const keywordOnly = matchedTags.length === 0 && matchedKeywords.length > 0;
+    const needsApproval =
+      this.config.moderation.mode === 'approve' ||
+      (keywordOnly && this.config.moderation.keywordRequireApproval);
+
+    if (needsApproval) {
       const pendingPost: WallPost = { ...wallPost, status: 'pending' };
       this.store.addPending(pendingPost);
       if (!this.paused) {
@@ -429,20 +441,30 @@ export class WallPipeline extends EventEmitter implements WallSource {
     }
   }
 
-  setHashtags(hashtags: string[]): string[] {
-    const cleaned = hashtags
-      .map((t) => t.trim().replace(/^[#＃]+/, ''))
-      .filter((t) => t.length > 0 && t.length <= 100)
-      .slice(0, MAX_HASHTAGS);
-    const normalized = [...new Set(cleaned.map(normalizeTag).filter(Boolean))];
+  setTerms(input: { value: string; type: WatchTerm['type'] }[]): WatchTerm[] {
+    const terms = buildTerms(input).slice(0, MAX_TERMS);
+    // 監視語を空にすると何も拾えなくなる。呼び出し側の検証漏れに備え、
+    // ここでも空への差し替えは拒否して現状を維持する。
+    if (terms.length === 0) {
+      log.warn('監視語を空にしようとしたため無視しました');
+      return this.config.event.terms;
+    }
+    this.config.event.terms = terms;
 
-    // config を差し替える。表示中の投稿はそのまま残す
-    // (運営が意図して残すことも消すこともできるよう、消去は別操作にする)。
-    this.config.event.hashtags = cleaned;
-    this.config.event.normalizedHashtags = normalized;
-    log.info('監視ハッシュタグを変更しました', { hashtags: cleaned });
+    const hashtags = terms.filter((t) => t.type === 'hashtag');
+    this.config.event.hashtags = hashtags.map((t) => t.value);
+    this.config.event.normalizedHashtags = hashtags.map((t) => t.normalized);
+
+    log.info('監視語を変更しました', {
+      hashtags: hashtags.map((t) => t.value),
+      keywords: terms.filter((t) => t.type === 'keyword').map((t) => t.value),
+    });
     this.scheduleStateEmit();
-    return cleaned;
+    return terms;
+  }
+
+  getTerms(): WatchTerm[] {
+    return this.config.event.terms;
   }
 
   getJetstreamHosts(): string[] {

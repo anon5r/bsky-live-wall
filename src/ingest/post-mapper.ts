@@ -55,13 +55,14 @@ export interface MapPostInput {
   record: BskyPostRecord;
   timeUs: number;
   matchedTags: string[];
+  matchedKeywords: string[];
   showImages: boolean;
   /** 未解決の場合は did/handle のみのプレースホルダを渡す。 */
   author: WallAuthor;
 }
 
 export function mapToWallPost(input: MapPostInput): WallPost {
-  const { did, rkey, cid, record, timeUs, matchedTags, showImages, author } = input;
+  const { did, rkey, cid, record, timeUs, matchedTags, matchedKeywords, showImages, author } = input;
   const receivedAt = Date.now();
 
   let createdAt = record.createdAt;
@@ -77,6 +78,7 @@ export function mapToWallPost(input: MapPostInput): WallPost {
     author,
     text: sanitizeText(record.text),
     matchedTags,
+    matchedKeywords,
     images: extractImages(record, did, showImages),
     langs: record.langs ?? [],
     isReply: record.reply !== undefined,

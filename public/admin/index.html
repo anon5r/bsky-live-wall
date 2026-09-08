@@ -142,16 +142,25 @@
         <h2 class="panel-title"><i class="fa-solid fa-binoculars fa-fw" aria-hidden="true"></i> 監視設定</h2>
 
         <div class="field">
-          <label for="hashtags-input"><i class="fa-solid fa-hashtag fa-fw" aria-hidden="true"></i> 監視ハッシュタグ (カンマ区切り、最大 10 件)</label>
+          <label for="term-input"><i class="fa-solid fa-filter fa-fw" aria-hidden="true"></i> 監視対象の追加</label>
           <div class="field-row">
-            <input type="text" id="hashtags-input" autocomplete="off"
-                   placeholder="myevent2026, マイイベント" />
-            <button id="hashtags-save-btn" class="btn btn-primary"><i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> 適用</button>
+            <input type="text" id="term-input" autocomplete="off" placeholder="myevent2026" />
+            <button id="term-add-btn" class="btn btn-primary"><i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> 追加</button>
           </div>
+          <label class="checkbox-row" for="term-keyword-check">
+            <input type="checkbox" id="term-keyword-check" />
+            <span><i class="fa-solid fa-font fa-fw" aria-hidden="true"></i> キーワードとして追加する (本文の部分一致)</span>
+          </label>
           <p class="field-note">
-            変更は即座に反映されます。表示中の投稿はそのまま残るため、
-            切り替え時は「全消去」と併用してください。再起動すると .env の値に戻ります。
+            既定はハッシュタグです。チェックを入れると本文中の任意の文字列に一致します。
+            合計 20 件まで。
           </p>
+          <div id="keyword-warning" class="inline-warning" hidden>
+            <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+            <span id="keyword-warning-text"></span>
+          </div>
+          <ul id="term-list" class="term-list"></ul>
+          <p id="term-empty" class="empty-msg">監視対象がありません。</p>
         </div>
 
         <div class="field">
@@ -215,6 +224,25 @@
       </section>
     </main>
   </div>
+
+  <!-- 監視対象を外すときの確認ダイアログ -->
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <h2 id="confirm-title" class="confirm-title">
+        <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
+        <span>確認</span>
+      </h2>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="confirm-actions">
+        <button value="cancel" class="btn btn-ghost">
+          <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i> キャンセル
+        </button>
+        <button id="confirm-ok" value="ok" class="btn btn-danger">
+          <i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> 削除する
+        </button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="/admin/admin.js"></script>
 </body>

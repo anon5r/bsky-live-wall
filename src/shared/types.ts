@@ -3,6 +3,21 @@
  * ingest / server / フロントエンドはすべてこの契約だけに依存する。
  */
 
+/** 監視語の種別。 */
+export type WatchTermType = 'hashtag' | 'keyword';
+
+/**
+ * 監視対象の語。
+ * hashtag は投稿者が明示的に付けたタグ、keyword は本文中の任意の文字列に一致する。
+ */
+export interface WatchTerm {
+  /** 入力された表記 */
+  value: string;
+  type: WatchTermType;
+  /** 比較用に正規化した値 (NFKC + 小文字化) */
+  normalized: string;
+}
+
 /** 投稿者情報。プロフィール未解決の間は displayName / avatar が undefined になる。 */
 export interface WallAuthor {
   did: string;
@@ -33,6 +48,8 @@ export interface WallPost {
   text: string;
   /** 一致した監視タグ (正規化前の表記) */
   matchedTags: string[];
+  /** 一致した監視キーワード (設定された表記) */
+  matchedKeywords: string[];
   images: WallImage[];
   langs: string[];
   isReply: boolean;
@@ -74,7 +91,10 @@ export interface WallStats {
 
 /** ウォール全体の状態。SSE の `state` イベントで送出される。 */
 export interface WallState {
+  /** 監視中のハッシュタグ (会場モニターのヘッダ表示に使う) */
   hashtags: string[];
+  /** 監視中の語すべて (種別付き) */
+  terms: WatchTerm[];
   eventTitle: string;
   eventSubtitle: string;
   paused: boolean;

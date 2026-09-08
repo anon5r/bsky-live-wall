@@ -144,6 +144,14 @@ body {
   min-width: 0;
 }
 
+/* キーワードはハッシュタグと区別できるよう見た目を変える。
+ * 会場係が「投稿者が付けたタグ」と「本文一致」を取り違えないようにするため。 */
+.tag-pill-keyword {
+  background: transparent;
+  border: 1px dashed currentColor;
+  opacity: 0.85;
+}
+
 .tag-pill {
   font-size: var(--tag-font-size);
   font-weight: 700;

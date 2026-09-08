@@ -4,6 +4,8 @@ import type {
   RemovePayload,
   WallPost,
   WallState,
+  WatchTerm,
+  WatchTermType,
 } from './types.js';
 
 /**
@@ -62,8 +64,10 @@ export interface WallSource {
   /** ブロック中の投稿者一覧 (DID またはハンドル)。 */
   getBlockedActors(): string[];
 
-  /** 監視ハッシュタグを差し替える。表示中の投稿はそのまま残る。 */
-  setHashtags(hashtags: string[]): string[];
+  /** 監視語 (ハッシュタグ / キーワード) を差し替える。表示中の投稿はそのまま残る。 */
+  setTerms(terms: { value: string; type: WatchTermType }[]): WatchTerm[];
+  /** 現在の監視語。 */
+  getTerms(): WatchTerm[];
 
   /** Jetstream の接続先候補。 */
   getJetstreamHosts(): string[];

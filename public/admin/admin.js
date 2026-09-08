@@ -50,8 +50,16 @@ blockedEmpty: document.getElementById('blocked-empty'),
 sessionCount: document.getElementById('session-count'),
 sessionExpiry: document.getElementById('session-expiry'),
 revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
-hashtagsInput: document.getElementById('hashtags-input'),
-hashtagsSaveBtn: document.getElementById('hashtags-save-btn'),
+termInput: document.getElementById('term-input'),
+termAddBtn: document.getElementById('term-add-btn'),
+termKeywordCheck: document.getElementById('term-keyword-check'),
+termList: document.getElementById('term-list'),
+termEmpty: document.getElementById('term-empty'),
+keywordWarning: document.getElementById('keyword-warning'),
+keywordWarningText: document.getElementById('keyword-warning-text'),
+confirmDialog: document.getElementById('confirm-dialog'),
+confirmMessage: document.getElementById('confirm-message'),
+confirmOk: document.getElementById('confirm-ok'),
 jetstreamSelect: document.getElementById('jetstream-select'),
 jetstreamSwitchBtn: document.getElementById('jetstream-switch-btn'),
 modlistCount: document.getElementById('modlist-count'),
@@ -377,14 +385,10 @@ loginDivider: document.getElementById('login-divider'),
     });
   }
 
-  // 監視設定。入力中の値を上書きしないよう、フォーカス中は書き換えない。
+  // 監視設定。
   function renderWatchSettings(data) {
     var state = data.state || {};
-    if (document.activeElement !== el.hashtagsInput) {
-      el.hashtagsInput.value = (state.hashtags || [])
-        .map(function (t) { return '#' + t; })
-        .join(', ');
-    }
+    renderTerms(state.terms || []);
 
     var hosts = data.jetstreamHosts || [];
     var current = (state.jetstream && state.jetstream.host) || '';
@@ -402,6 +406,100 @@ loginDivider: document.getElementById('login-divider'),
       el.jetstreamSelect.value = current;
     }
   }
+
+  // 監視対象をラベル (チップ) として並べる。× で個別に外せる。
+  var currentTerms = [];
+  function renderTerms(terms) {
+    currentTerms = terms;
+    el.termList.replaceChildren();
+    el.termEmpty.hidden = terms.length > 0;
+
+    var keywordCount = 0;
+    terms.forEach(function (term) {
+      if (term.type === 'keyword') keywordCount += 1;
+
+      var li = document.createElement('li');
+      li.className = 'term-chip term-chip-' + term.type;
+
+      var icon = document.createElement('i');
+      icon.className = (term.type === 'hashtag' ? 'fa-solid fa-hashtag' : 'fa-solid fa-font');
+      icon.setAttribute('aria-hidden', 'true');
+      li.appendChild(icon);
+
+      var label = document.createElement('span');
+      label.className = 'term-label';
+      label.textContent = term.value;
+      li.appendChild(label);
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'term-remove';
+      remove.setAttribute(
+        'aria-label',
+        (term.type === 'hashtag' ? 'ハッシュタグ ' : 'キーワード ') + term.value + ' を削除'
+      );
+      remove.title = '削除';
+      remove.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+      remove.addEventListener('click', function () { requestRemoveTerm(term); });
+      li.appendChild(remove);
+
+      el.termList.appendChild(li);
+    });
+
+    // キーワードが設定されているときは、扱いの違いを常に見えるようにする。
+    el.keywordWarning.hidden = keywordCount === 0;
+    if (keywordCount > 0) {
+      el.keywordWarningText.textContent =
+        'キーワード ' + keywordCount + ' 件が有効です。' +
+        'ハッシュタグの付かない投稿は、イベントを知らない第三者のものである可能性があります。' +
+        '既定ではキーワードのみ一致した投稿は承認待ちに入ります。';
+    }
+  }
+
+  // 監視対象の削除は確認ダイアログを挟む。誤操作で監視が止まるのを防ぐため。
+  function requestRemoveTerm(term) {
+    var kind = term.type === 'hashtag' ? 'ハッシュタグ' : 'キーワード';
+    openConfirm(kind + '「' + term.value + '」を監視対象から外します。よろしいですか？', function () {
+      var next = currentTerms.filter(function (t) {
+        return !(t.value === term.value && t.type === term.type);
+      });
+      if (next.length === 0) {
+        showToast('監視対象を 0 件にはできません');
+        return;
+      }
+      saveTerms(next, '監視対象から外しました');
+    });
+  }
+
+  function saveTerms(terms, successMessage) {
+    var payload = terms.map(function (t) { return { value: t.value, type: t.type }; });
+    callAdminApi('/api/admin/terms', { terms: payload })
+      .then(function () {
+        showToast(successMessage);
+        fetchState();
+      })
+      .catch(function () { showToast('監視対象の更新に失敗しました'); });
+  }
+
+  // <dialog> を使った確認。alert/confirm はページ全体を止めるため使わない。
+  var confirmHandler = null;
+  function openConfirm(message, onOk) {
+    confirmHandler = onOk;
+    el.confirmMessage.textContent = message;
+    if (typeof el.confirmDialog.showModal === 'function') {
+      el.confirmDialog.showModal();
+    } else {
+      // <dialog> 非対応環境では即座に実行せず、操作を中止する。
+      showToast('この環境では確認ダイアログを表示できません');
+      confirmHandler = null;
+    }
+  }
+
+  el.confirmDialog.addEventListener('close', function () {
+    var handler = confirmHandler;
+    confirmHandler = null;
+    if (el.confirmDialog.returnValue === 'ok' && handler) handler();
+  });
 
   // 購読中のモデレーションリスト。
   function renderModLists(lists) {
@@ -691,21 +789,38 @@ loginDivider: document.getElementById('login-divider'),
   // イベントハンドラ
   // ==========================================================
 
-  el.hashtagsSaveBtn.addEventListener('click', function () {
-    var tags = (el.hashtagsInput.value || '')
-      .split(',')
-      .map(function (t) { return t.trim(); })
-      .filter(function (t) { return t.length > 0; });
-    if (tags.length === 0) {
-      showToast('ハッシュタグを 1 つ以上入力してください');
+  function addTerm() {
+    var raw = (el.termInput.value || '').trim();
+    if (!raw) {
+      showToast('監視する語を入力してください');
       return;
     }
-    callAdminApi('/api/admin/hashtags', { hashtags: tags })
-      .then(function () {
-        showToast('監視ハッシュタグを変更しました');
-        fetchState();
-      })
-      .catch(function () { showToast('変更に失敗しました'); });
+    var type = el.termKeywordCheck.checked ? 'keyword' : 'hashtag';
+    var value = type === 'hashtag' ? raw.replace(/^[#＃]+/, '') : raw;
+    if (!value) {
+      showToast('監視する語を入力してください');
+      return;
+    }
+    if (type === 'keyword' && value.length < 2) {
+      showToast('キーワードは 2 文字以上で指定してください');
+      return;
+    }
+    var duplicated = currentTerms.some(function (t) {
+      return t.type === type && t.value.toLowerCase() === value.toLowerCase();
+    });
+    if (duplicated) {
+      showToast('すでに登録されています');
+      return;
+    }
+
+    saveTerms(currentTerms.concat([{ value: value, type: type }]), '監視対象に追加しました');
+    el.termInput.value = '';
+    el.termInput.focus();
+  }
+
+  el.termAddBtn.addEventListener('click', addTerm);
+  el.termInput.addEventListener('keydown', function (evt) {
+    if (evt.key === 'Enter') addTerm();
   });
 
   el.jetstreamSwitchBtn.addEventListener('click', function () {

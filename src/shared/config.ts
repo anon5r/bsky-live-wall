@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import type { ModerationMode } from './types.js';
+import type { ModerationMode, WatchTerm, WatchTermType } from './types.js';
 
 /** 管理画面の認証方式。 */
 export type AuthMode = 'token' | 'oauth' | 'both';
@@ -12,6 +12,8 @@ export interface AppConfig {
     hashtags: string[];
     /** 比較用に正規化 (NFKC + 小文字 + 先頭 # 除去) 済みのタグ */
     normalizedHashtags: string[];
+    /** 監視語すべて (ハッシュタグ + キーワード) */
+    terms: WatchTerm[];
   };
   server: {
     port: number;
@@ -46,6 +48,12 @@ export interface AppConfig {
     allowReplies: boolean;
     filterLabeled: boolean;
     allowedLangs: string[];
+    /**
+     * キーワードだけで一致した投稿を承認待ちに回すか。
+     * ハッシュタグと違い、キーワード一致はイベントを知らない第三者の投稿を
+     * 拾ってしまうため、既定では運営の確認を挟む。
+     */
+    keywordRequireApproval: boolean;
   };
   admin: {
     token: string;
@@ -75,6 +83,33 @@ export interface AppConfig {
     rkey: string;
     publisherDid: string;
   };
+}
+
+/** キーワード比較用の正規化。タグと違い先頭の # は落とさない。 */
+export function normalizeKeyword(word: string): string {
+  return word.normalize('NFKC').trim().toLowerCase();
+}
+
+/**
+ * 入力された監視語を正規化し、重複を取り除く。
+ * ハッシュタグとキーワードは同じ表記でも別物として扱う。
+ */
+export function buildTerms(
+  input: { value: string; type: WatchTermType }[]
+): WatchTerm[] {
+  const seen = new Set<string>();
+  const out: WatchTerm[] = [];
+  for (const { value, type } of input) {
+    const trimmed = type === 'hashtag' ? value.trim().replace(/^[#＃]+/, '') : value.trim();
+    if (trimmed === '') continue;
+    const normalized = type === 'hashtag' ? normalizeTag(trimmed) : normalizeKeyword(trimmed);
+    if (normalized === '') continue;
+    const key = `${type}:${normalized}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ value: trimmed, type, normalized });
+  }
+  return out;
 }
 
 /** 文字列をタグ比較用に正規化する。ingest と server で同じ関数を使うこと。 */
@@ -128,6 +163,7 @@ export function loadConfig(): AppConfig {
   if (cached) return cached;
 
   const hashtags = list('HASHTAGS', ['bskyevent']);
+  const keywords = list('KEYWORDS');
   const mode = str('MODERATION_MODE', 'open') === 'approve' ? 'approve' : 'open';
 
   cached = {
@@ -136,6 +172,10 @@ export function loadConfig(): AppConfig {
       subtitle: str('EVENT_SUBTITLE', ''),
       hashtags: hashtags.map((t) => t.replace(/^#+/, '')),
       normalizedHashtags: [...new Set(hashtags.map(normalizeTag).filter(Boolean))],
+      terms: buildTerms([
+        ...hashtags.map((v) => ({ value: v, type: 'hashtag' as WatchTermType })),
+        ...keywords.map((v) => ({ value: v, type: 'keyword' as WatchTermType })),
+      ]),
     },
     server: {
       port: num('PORT', 3000),
@@ -175,6 +215,7 @@ export function loadConfig(): AppConfig {
       allowReplies: bool('ALLOW_REPLIES', true),
       filterLabeled: bool('FILTER_LABELED', true),
       allowedLangs: list('ALLOWED_LANGS').map((l) => l.toLowerCase()),
+      keywordRequireApproval: bool('KEYWORD_REQUIRE_APPROVAL', true),
     },
     admin: {
       token: str('ADMIN_TOKEN', ''),
