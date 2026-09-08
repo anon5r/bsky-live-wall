@@ -27,10 +27,16 @@
       </div>
     </header>
 
-    <main id="wall" class="wall-grid" aria-live="polite"></main>
+    <main id="wall" class="wall-grid" aria-live="polite" tabindex="0"></main>
+
+    <button type="button" id="new-posts" class="new-posts" aria-live="polite">
+      <span class="new-posts-arrow" aria-hidden="true">&#9650;</span>
+      <span id="new-posts-count">0</span>
+      <span>件の新着</span>
+    </button>
 
     <section id="waiting-screen" class="waiting-screen">
-      <p class="waiting-message">投稿を待っています</p>
+      <p class="waiting-message">接続中……</p>
       <p class="waiting-hashtag" id="waiting-hashtag"></p>
       <p class="waiting-hint" id="waiting-hint"></p>
     </section>

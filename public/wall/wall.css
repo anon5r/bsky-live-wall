@@ -223,7 +223,11 @@ body {
   grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
   gap: var(--card-gap);
   padding: clamp(12px, 1.8vh, 28px) clamp(20px, 2.4vw, 48px);
-  overflow: hidden;
+  /* 会場係がマウスホイールで過去の投稿を遡れるようにする。 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   align-content: start;
   width: 100%;
   max-width: var(--stream-max-width);
@@ -442,7 +446,71 @@ body {
 .waiting-hint {
   margin: 0.3em 0 0;
   font-size: clamp(16px, 2.2vh, 34px);
-  color: var(--text-secondary);
+  color: var(--accent-contrast);
   font-weight: 500;
   line-height: 1.5;
+}
+
+/* ---------------- スクロール ---------------- */
+
+.wall-grid::-webkit-scrollbar {
+  width: 10px;
+}
+
+.wall-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.wall-grid::-webkit-scrollbar-thumb {
+  background: var(--surface-border);
+  border-radius: 999px;
+}
+
+.wall-grid::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.wall-grid:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/*
+ * 過去の投稿を読んでいる最中に届いた新着の件数。
+ * クリックで先頭へ戻る。60 秒操作がなければ自動で先頭へ戻る。
+ */
+.new-posts {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(16px, 3vh, 48px);
+  transform: translate(-50%, 140%);
+  display: none;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 1.2em;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: inherit;
+  font-size: clamp(16px, 2.2vh, 34px);
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px var(--shadow);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.new-posts.visible {
+  display: flex;
+  transform: translate(-50%, 0);
+}
+
+.new-posts-arrow {
+  font-size: 0.7em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-posts {
+    transition: none;
+  }
 }

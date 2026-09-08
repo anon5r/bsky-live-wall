@@ -24,6 +24,8 @@ const log = createLogger('pipeline');
 
 const STATE_THROTTLE_MS = 1000;
 const POST_COLLECTION = 'app.bsky.feed.post';
+/** 非表示にした uri を覚えておく上限。超えた分は古いものから捨てる。 */
+const HIDDEN_URI_LIMIT = 5000;
 
 export class WallPipeline extends EventEmitter implements WallSource {
   private readonly config: AppConfig;
@@ -41,6 +43,12 @@ export class WallPipeline extends EventEmitter implements WallSource {
     cursor: null,
     backfilling: false,
   };
+
+  /**
+   * 運営が非表示にした投稿の uri。
+   * 再接続時のリプレイやバックフィルで同じ投稿が再配信されても復活させないために保持する。
+   */
+  private readonly hiddenUris = new Set<string>();
 
   private stateEmitTimer: NodeJS.Timeout | null = null;
   private stateEmitPending = false;
@@ -143,6 +151,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
   }
 
   hide(uri: string): boolean {
+    this.rememberHidden(uri);
     const removed = this.store.remove(uri, 'hidden');
     if (removed) {
       this.emit('remove', { uri, reason: 'hidden' });
@@ -169,6 +178,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     let count = 0;
     for (const post of targets) {
       if (post.did.toLowerCase() === needle || post.author.handle.toLowerCase() === needle) {
+        this.rememberHidden(post.uri);
         if (this.store.remove(post.uri, 'hidden')) {
           this.emit('remove', { uri: post.uri, reason: 'hidden' });
           count += 1;
@@ -208,6 +218,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     const record = commit.record;
     if (!record) return;
     if (this.store.has(uri)) return; // 同一 uri の重複受信を無視する。
+    if (this.hiddenUris.has(uri)) return; // 運営が非表示にした投稿は再配信されても復活させない。
 
     const matchedTags = matchHashtags(record, this.config.event.normalizedHashtags);
     if (matchedTags.length === 0) return;
@@ -245,6 +256,15 @@ export class WallPipeline extends EventEmitter implements WallSource {
       }
     }
     this.scheduleStateEmit();
+  }
+
+  /** 非表示 uri を記録する。無制限に増えないよう古いものから捨てる。 */
+  private rememberHidden(uri: string): void {
+    this.hiddenUris.add(uri);
+    if (this.hiddenUris.size > HIDDEN_URI_LIMIT) {
+      const oldest = this.hiddenUris.values().next();
+      if (!oldest.done) this.hiddenUris.delete(oldest.value);
+    }
   }
 
   private scheduleStateEmit(): void {

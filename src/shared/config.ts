@@ -138,10 +138,10 @@ export function loadConfig(): AppConfig {
     },
     buffer: {
       size: num('BUFFER_SIZE', 200),
-      backlogSize: num('BACKLOG_SIZE', 30),
+      backlogSize: num('BACKLOG_SIZE', 40),
     },
     display: {
-      maxCards: num('WALL_MAX_CARDS', 12),
+      maxCards: num('WALL_MAX_CARDS', 40),
       columns: num('WALL_COLUMNS', 1),
       cardTtlSec: num('WALL_CARD_TTL_SEC', 0),
       showImages: bool('SHOW_IMAGES', true),

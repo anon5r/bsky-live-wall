@@ -51,13 +51,15 @@
   const statusDotEl = document.getElementById('status-dot');
   const statusTextEl = document.getElementById('status-text');
   const clockEl = document.getElementById('clock');
+  const newPostsEl = document.getElementById('new-posts');
+  const newPostsCountEl = document.getElementById('new-posts-count');
 
   // ---------------------------------------------------------------------
   // アプリ状態
   // ---------------------------------------------------------------------
   const state = {
     display: {
-      maxCards: 12,
+      maxCards: 40,
       columns: 1,
       cardTtlSec: 0,
       showImages: true,
@@ -68,6 +70,10 @@
     cards: new Map(),
     // 表示順 (先頭 = 最新)
     order: [],
+    // スクロール中に届いた未読の新着件数
+    unseen: 0,
+    // 一定時間操作がなければ先頭へ戻すタイマー
+    autoReturnTimer: null,
   };
 
   function applyDisplayConfig(display) {
@@ -250,7 +256,15 @@
     if (state.cards.has(post.uri)) return; // 重複防止
 
     const { card, timeEl } = buildCardElement(post);
+    // 利用者が過去の投稿を読むためにスクロールしている最中は、
+    // 新着が入っても読んでいる位置がずれないように補正する。
+    const stick = isAtTop();
     wallEl.insertBefore(card, wallEl.firstChild);
+    if (!stick) {
+      wallEl.scrollTop += card.offsetHeight + getCardGap();
+      state.unseen += 1;
+      updateNewPostsIndicator();
+    }
 
     state.cards.set(post.uri, { post, el: card, timeEl });
     state.order.unshift(post.uri);
@@ -259,8 +273,65 @@
     updateWaitingScreen();
   }
 
+  // ---------------------------------------------------------------------
+  // スクロール (会場係が過去の投稿を遡って確認するため)
+  // ---------------------------------------------------------------------
+  /** この範囲内なら「先頭にいる」とみなし、新着で自動的に追従する。 */
+  const STICK_THRESHOLD_PX = 12;
+  /** 最後の操作からこの時間が過ぎたら自動で先頭へ戻る。 */
+  const AUTO_RETURN_MS = 60_000;
+
+  function prefersReducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function isAtTop() {
+    return wallEl.scrollTop <= STICK_THRESHOLD_PX;
+  }
+
+  function getCardGap() {
+    const gap = parseFloat(getComputedStyle(wallEl).rowGap);
+    return Number.isFinite(gap) ? gap : 0;
+  }
+
+  function scrollToTop(smooth) {
+    wallEl.scrollTo({ top: 0, behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto' });
+    state.unseen = 0;
+    updateNewPostsIndicator();
+  }
+
+  function updateNewPostsIndicator() {
+    const show = state.unseen > 0 && !isAtTop();
+    newPostsEl.classList.toggle('visible', show);
+    if (show) {
+      newPostsCountEl.textContent = String(state.unseen);
+    }
+  }
+
+  function scheduleAutoReturn() {
+    if (state.autoReturnTimer) clearTimeout(state.autoReturnTimer);
+    state.autoReturnTimer = setTimeout(() => {
+      if (!isAtTop()) scrollToTop(true);
+    }, AUTO_RETURN_MS);
+  }
+
+  wallEl.addEventListener('scroll', () => {
+    if (isAtTop()) {
+      state.unseen = 0;
+      if (state.autoReturnTimer) {
+        clearTimeout(state.autoReturnTimer);
+        state.autoReturnTimer = null;
+      }
+    } else {
+      scheduleAutoReturn();
+    }
+    updateNewPostsIndicator();
+  });
+
+  newPostsEl.addEventListener('click', () => scrollToTop(true));
+
   function enforceMaxCards() {
-    const max = state.display.maxCards || 30;
+    const max = state.display.maxCards || 40;
     while (state.order.length > max) {
       const uri = state.order.pop();
       const entry = state.cards.get(uri);
@@ -329,6 +400,9 @@
 
   function clearAllCards() {
     wallEl.innerHTML = '';
+    wallEl.scrollTop = 0;
+    state.unseen = 0;
+    updateNewPostsIndicator();
     state.cards.clear();
     state.order = [];
     updateWaitingScreen();
