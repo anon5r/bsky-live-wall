@@ -592,3 +592,67 @@ button {
   line-height: 1.6;
   color: var(--color-text-muted, #6b7699);
 }
+
+/* ---------- 監視設定・モデレーションリスト ---------- */
+
+.field {
+  margin-top: 16px;
+}
+
+.field:first-of-type {
+  margin-top: 0;
+}
+
+.field > label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.field-row input[type='text'],
+.field-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.field-row .btn {
+  flex: 0 0 auto;
+}
+
+.field-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted, #6b7699);
+}
+
+.panel-modlist .actor-list {
+  margin-bottom: 4px;
+}
+
+.panel-modlist .actor-item {
+  align-items: flex-start;
+}
+
+#modlist-available {
+  margin-top: 12px;
+}
+
+@media (max-width: 640px) {
+  .field-row {
+    flex-direction: column;
+  }
+}

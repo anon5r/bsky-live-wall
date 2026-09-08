@@ -112,6 +112,18 @@ export interface RemovePayload {
   reason: 'deleted' | 'hidden' | 'cleared';
 }
 
+/** 購読中のモデレーションリストの状態。 */
+export interface ModListInfo {
+  uri: string;
+  name: string;
+  purpose: string;
+  /** 実際に読み込めたメンバー数 */
+  memberCount: number;
+  lastFetchedAt: number | null;
+  /** 直近の取得に失敗した場合の理由 */
+  error?: string;
+}
+
 /** Jetstream から受け取る生イベント (必要な部分のみ)。 */
 export interface JetstreamEvent {
   did: string;

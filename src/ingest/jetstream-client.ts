@@ -90,6 +90,46 @@ export class JetstreamClient extends EventEmitter {
     return this.lastTimeUs;
   }
 
+  /** 接続候補のホスト一覧。 */
+  get availableHosts(): string[] {
+    return [...this.hosts];
+  }
+
+  /**
+   * 接続先ホストを切り替える。
+   * 現在のカーソルを保持したまま張り直すため、切り替え中の取りこぼしは
+   * replayWindowSec の範囲で補填される。
+   */
+  switchHost(host: string): boolean {
+    const index = this.hosts.indexOf(host);
+    if (index < 0) return false;
+    if (index === this.hostIndex && this.ws) {
+      // 同じホストへの切り替えは、接続し直しとして扱う。
+      log.info(`同一ホストへ再接続します: ${host}`);
+    }
+    this.hostIndex = index;
+    this.consecutiveFailures = 0;
+    this.reconnectAttempt = 0;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.ws) {
+      // 切断ハンドラによる自動再接続を止めてから閉じる。
+      this.ws.removeAllListeners();
+      try {
+        this.ws.close();
+      } catch {
+        // 既に閉じている場合は無視する。
+      }
+      this.ws = null;
+    }
+    log.info(`接続先を切り替えます: ${host}`);
+    this.connect();
+    return true;
+  }
+
   private buildUrl(): string {
     const params = new URLSearchParams();
     params.set('wantedCollections', WANTED_COLLECTION);

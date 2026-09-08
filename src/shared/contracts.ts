@@ -1,4 +1,5 @@
 import type {
+  ModListInfo,
   ProfileUpdatePayload,
   RemovePayload,
   WallPost,
@@ -60,6 +61,21 @@ export interface WallSource {
   unblockActor(actor: string): number;
   /** ブロック中の投稿者一覧 (DID またはハンドル)。 */
   getBlockedActors(): string[];
+
+  /** 監視ハッシュタグを差し替える。表示中の投稿はそのまま残る。 */
+  setHashtags(hashtags: string[]): string[];
+
+  /** Jetstream の接続先候補。 */
+  getJetstreamHosts(): string[];
+  /** Jetstream の接続先を切り替える。候補にないホストは false。 */
+  switchJetstreamHost(host: string): boolean;
+
+  /** 購読中のモデレーションリスト。 */
+  getModLists(): ModListInfo[];
+  /** モデレーションリストを購読し、掲載アカウントの投稿を取り下げる。取り下げ件数を返す。 */
+  subscribeModList(uri: string): Promise<{ info: ModListInfo; removed: number }>;
+  /** 購読を解除する。 */
+  unsubscribeModList(uri: string): boolean;
   /** 表示中の投稿をすべて消去する。 */
   clear(): void;
 }

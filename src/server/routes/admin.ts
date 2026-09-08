@@ -290,7 +290,9 @@ export function registerAdminRoutes(
     const pending = source.getPending(config.buffer.backlogSize);
     const hidden = source.getHidden(config.buffer.backlogSize);
     const blocked = source.getBlockedActors();
-    return reply.send({ state, recent, pending, hidden, blocked });
+    const modLists = source.getModLists();
+    const jetstreamHosts = source.getJetstreamHosts();
+    return reply.send({ state, recent, pending, hidden, blocked, modLists, jetstreamHosts });
   });
 
   app.post<{ Body: { paused?: unknown } }>('/api/admin/pause', async (request, reply) => {
@@ -351,6 +353,108 @@ export function registerAdminRoutes(
     recordAudit('unblock', did, request, undefined, sessions);
     const restored = source.unblockActor(did);
     return reply.send({ restored });
+  });
+
+  // ---- 監視設定 ----
+
+  app.post<{ Body: { hashtags?: unknown } }>('/api/admin/hashtags', async (request, reply) => {
+    const { hashtags } = request.body ?? {};
+    if (!Array.isArray(hashtags) || hashtags.some((t) => typeof t !== 'string')) {
+      return badRequest(reply, 'hashtags は文字列の配列で指定してください');
+    }
+    const applied = source.setHashtags(hashtags as string[]);
+    if (applied.length === 0) {
+      return badRequest(reply, '有効なハッシュタグが 1 つもありません');
+    }
+    recordAudit('hashtags', applied.join(','), request, undefined, sessions);
+    return reply.send({ hashtags: applied });
+  });
+
+  app.get('/api/admin/jetstream', async (_request, reply) => {
+    const state = source.getState();
+    return reply.send({
+      hosts: source.getJetstreamHosts(),
+      current: state.jetstream.host,
+      connected: state.jetstream.connected,
+    });
+  });
+
+  app.post<{ Body: { host?: unknown } }>('/api/admin/jetstream', async (request, reply) => {
+    const { host } = request.body ?? {};
+    if (typeof host !== 'string' || host === '') {
+      return badRequest(reply, 'host は空でない文字列で指定してください');
+    }
+    const ok = source.switchJetstreamHost(host);
+    if (!ok) {
+      return badRequest(reply, '候補にないホストです');
+    }
+    recordAudit('jetstream-switch', host, request, undefined, sessions);
+    return reply.send({ ok: true, host });
+  });
+
+  // ---- モデレーションリスト ----
+
+  app.get('/api/admin/modlists', async (_request, reply) =>
+    reply.send({ subscribed: source.getModLists() })
+  );
+
+  /**
+   * ログイン中のアカウント (または指定したアカウント) が持つリストを返す。
+   * リストは公開データのため、認証なしで取得できる。
+   */
+  app.get<{ Querystring: { actor?: string } }>(
+    '/api/admin/modlists/available',
+    async (request, reply) => {
+      const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
+      const actor = request.query.actor?.trim() || session?.did || session?.handle;
+      if (!actor) {
+        return badRequest(
+          reply,
+          'アカウントを特定できません。OAuth でログインするか actor を指定してください'
+        );
+      }
+      try {
+        const params = new URLSearchParams({ actor, limit: '100' });
+        const res = await fetch(
+          `${config.appview.url}/xrpc/app.bsky.graph.getLists?${params}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          lists?: { uri: string; name?: string; purpose?: string; listItemCount?: number }[];
+        };
+        const lists = (data.lists ?? []).map((l) => ({
+          uri: l.uri,
+          name: l.name ?? l.uri,
+          purpose: l.purpose ?? '',
+          itemCount: l.listItemCount ?? 0,
+        }));
+        return reply.send({ actor, lists });
+      } catch (err) {
+        logger.warn('リスト一覧の取得に失敗しました', { actor, err });
+        return reply
+          .code(502)
+          .send({ error: 'fetch_failed', message: 'リスト一覧を取得できませんでした' });
+      }
+    }
+  );
+
+  app.post<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
+    const { uri } = request.body ?? {};
+    if (typeof uri !== 'string' || !uri.startsWith('at://')) {
+      return badRequest(reply, 'uri は at:// で始まる文字列で指定してください');
+    }
+    recordAudit('modlist-subscribe', uri, request, undefined, sessions);
+    const result = await source.subscribeModList(uri);
+    return reply.send(result);
+  });
+
+  app.delete<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
+    const { uri } = request.body ?? {};
+    if (typeof uri !== 'string' || uri === '') {
+      return badRequest(reply, 'uri は空でない文字列で指定してください');
+    }
+    recordAudit('modlist-unsubscribe', uri, request, undefined, sessions);
+    return reply.send({ ok: source.unsubscribeModList(uri) });
   });
 
   app.post('/api/admin/clear', async (request, reply) => {

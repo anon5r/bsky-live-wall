@@ -50,6 +50,16 @@ blockedEmpty: document.getElementById('blocked-empty'),
 sessionCount: document.getElementById('session-count'),
 sessionExpiry: document.getElementById('session-expiry'),
 revokeSessionsBtn: document.getElementById('revoke-sessions-btn'),
+hashtagsInput: document.getElementById('hashtags-input'),
+hashtagsSaveBtn: document.getElementById('hashtags-save-btn'),
+jetstreamSelect: document.getElementById('jetstream-select'),
+jetstreamSwitchBtn: document.getElementById('jetstream-switch-btn'),
+modlistCount: document.getElementById('modlist-count'),
+modlistSubscribed: document.getElementById('modlist-subscribed'),
+modlistEmpty: document.getElementById('modlist-empty'),
+modlistActorInput: document.getElementById('modlist-actor-input'),
+modlistLoadBtn: document.getElementById('modlist-load-btn'),
+modlistAvailable: document.getElementById('modlist-available'),
 oauthLogin: document.getElementById('oauth-login'),
 oauthBtn: document.getElementById('oauth-btn'),
 handleInput: document.getElementById('handle-input'),
@@ -318,6 +328,8 @@ loginDivider: document.getElementById('login-divider'),
     renderRecentList(data.recent || []);
     renderHiddenList(data.hidden || []);
     renderBlockedList(data.blocked || []);
+    renderWatchSettings(data);
+    renderModLists(data.modLists || []);
     refreshSessionInfo();
   }
 
@@ -342,6 +354,73 @@ loginDivider: document.getElementById('login-divider'),
     el.recentEmpty.hidden = posts.length > 0;
     posts.forEach(function (post) {
       el.recentList.appendChild(buildPostItem(post, { approve: false, hide: true, block: true }));
+    });
+  }
+
+  // 監視設定。入力中の値を上書きしないよう、フォーカス中は書き換えない。
+  function renderWatchSettings(data) {
+    var state = data.state || {};
+    if (document.activeElement !== el.hashtagsInput) {
+      el.hashtagsInput.value = (state.hashtags || [])
+        .map(function (t) { return '#' + t; })
+        .join(', ');
+    }
+
+    var hosts = data.jetstreamHosts || [];
+    var current = (state.jetstream && state.jetstream.host) || '';
+    // 候補が変わっていなければ再構築しない (選択状態を壊さないため)。
+    if (el.jetstreamSelect.options.length !== hosts.length) {
+      el.jetstreamSelect.replaceChildren();
+      hosts.forEach(function (host) {
+        var opt = document.createElement('option');
+        opt.value = host;
+        opt.textContent = host;
+        el.jetstreamSelect.appendChild(opt);
+      });
+    }
+    if (current && document.activeElement !== el.jetstreamSelect) {
+      el.jetstreamSelect.value = current;
+    }
+  }
+
+  // 購読中のモデレーションリスト。
+  function renderModLists(lists) {
+    el.modlistCount.textContent = String(lists.length);
+    el.modlistEmpty.hidden = lists.length > 0;
+    el.modlistSubscribed.replaceChildren();
+
+    lists.forEach(function (info) {
+      var li = document.createElement('li');
+      li.className = 'actor-item';
+
+      var body = document.createElement('div');
+      var name = document.createElement('div');
+      name.className = 'actor-name';
+      name.textContent = info.name;
+      body.appendChild(name);
+
+      var meta = document.createElement('div');
+      meta.className = 'field-note';
+      meta.textContent = info.error
+        ? info.memberCount + ' 件 (最新の取得に失敗: ' + info.error + ')'
+        : info.memberCount + ' 件';
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-neutral btn-small';
+      btn.textContent = '購読解除';
+      btn.addEventListener('click', function () {
+        apiFetch('/api/admin/modlists', {
+          method: 'DELETE',
+          body: JSON.stringify({ uri: info.uri }),
+        })
+          .then(function () { fetchState(); })
+          .catch(function () { showToast('購読解除に失敗しました'); });
+      });
+      li.appendChild(btn);
+
+      el.modlistSubscribed.appendChild(li);
     });
   }
 
@@ -573,6 +652,104 @@ loginDivider: document.getElementById('login-divider'),
   // ==========================================================
   // イベントハンドラ
   // ==========================================================
+
+  el.hashtagsSaveBtn.addEventListener('click', function () {
+    var tags = (el.hashtagsInput.value || '')
+      .split(',')
+      .map(function (t) { return t.trim(); })
+      .filter(function (t) { return t.length > 0; });
+    if (tags.length === 0) {
+      showToast('ハッシュタグを 1 つ以上入力してください');
+      return;
+    }
+    callAdminApi('/api/admin/hashtags', { hashtags: tags })
+      .then(function () {
+        showToast('監視ハッシュタグを変更しました');
+        fetchState();
+      })
+      .catch(function () { showToast('変更に失敗しました'); });
+  });
+
+  el.jetstreamSwitchBtn.addEventListener('click', function () {
+    var host = el.jetstreamSelect.value;
+    if (!host) return;
+    callAdminApi('/api/admin/jetstream', { host: host })
+      .then(function () {
+        showToast('接続先を切り替えました: ' + host);
+        fetchState();
+      })
+      .catch(function () { showToast('切り替えに失敗しました'); });
+  });
+
+  el.modlistLoadBtn.addEventListener('click', function () {
+    var actor = (el.modlistActorInput.value || '').trim();
+    var path = '/api/admin/modlists/available' + (actor ? '?actor=' + encodeURIComponent(actor) : '');
+    el.modlistLoadBtn.disabled = true;
+    apiFetch(path)
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        el.modlistLoadBtn.disabled = false;
+        if (!data) {
+          showToast('リストを取得できませんでした');
+          return;
+        }
+        renderAvailableLists(data.lists || []);
+      })
+      .catch(function () {
+        el.modlistLoadBtn.disabled = false;
+        showToast('リストを取得できませんでした');
+      });
+  });
+
+  // 取得したリストの候補を並べ、購読ボタンを付ける。
+  function renderAvailableLists(lists) {
+    el.modlistAvailable.replaceChildren();
+    if (lists.length === 0) {
+      var empty = document.createElement('li');
+      empty.className = 'empty-msg';
+      empty.textContent = 'このアカウントにはリストがありません。';
+      el.modlistAvailable.appendChild(empty);
+      return;
+    }
+    lists.forEach(function (list) {
+      var li = document.createElement('li');
+      li.className = 'actor-item';
+
+      var body = document.createElement('div');
+      var name = document.createElement('div');
+      name.className = 'actor-name';
+      name.textContent = list.name;
+      body.appendChild(name);
+
+      var meta = document.createElement('div');
+      meta.className = 'field-note';
+      // modlist 以外 (curatelist など) も購読はできるが、用途が違うことを示す。
+      var kind = list.purpose.indexOf('modlist') >= 0 ? 'モデレーションリスト' : 'キュレーションリスト';
+      meta.textContent = kind + ' / ' + list.itemCount + ' 件';
+      body.appendChild(meta);
+      li.appendChild(body);
+
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-small';
+      btn.textContent = '購読';
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        callAdminApi('/api/admin/modlists', { uri: list.uri })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            showToast('購読しました (' + data.info.memberCount + ' 件 / 取り下げ ' + data.removed + ' 件)');
+            fetchState();
+          })
+          .catch(function () {
+            btn.disabled = false;
+            showToast('購読に失敗しました');
+          });
+      });
+      li.appendChild(btn);
+
+      el.modlistAvailable.appendChild(li);
+    });
+  }
 
   el.oauthBtn.addEventListener('click', function () {
     var handle = (el.handleInput.value || '').trim();

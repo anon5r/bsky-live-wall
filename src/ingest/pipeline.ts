@@ -3,8 +3,9 @@
  * WallSource として server 層へ公開する。
  */
 import { EventEmitter } from 'node:events';
-import type { AppConfig } from '../shared/config.js';
+import { normalizeTag, type AppConfig } from '../shared/config.js';
 import type {
+  ModListInfo,
   JetstreamEvent,
   JetstreamStatus,
   WallPost,
@@ -14,6 +15,7 @@ import type { WallSource, WallSourceEvents } from '../shared/contracts.js';
 import { createLogger } from '../shared/logger.js';
 import { JetstreamClient } from './jetstream-client.js';
 import { BackfillReader } from './backfill-reader.js';
+import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { evaluate } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
@@ -26,6 +28,8 @@ const STATE_THROTTLE_MS = 1000;
 const POST_COLLECTION = 'app.bsky.feed.post';
 /** 非表示にした uri を覚えておく上限。超えた分は古いものから捨てる。 */
 const HIDDEN_URI_LIMIT = 5000;
+/** 監視ハッシュタグの上限。無制限に増やせると誤設定で全件一致しかねない。 */
+const MAX_HASHTAGS = 10;
 /** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
 const BACKFILL_DELETED_LIMIT = 50_000;
 
@@ -33,6 +37,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
   private readonly config: AppConfig;
   private readonly jetstream: JetstreamClient;
   private readonly backfill: BackfillReader;
+  private readonly modLists: ModListManager;
   private readonly hydrator: ProfileHydrator;
   private readonly store: PostStore;
 
@@ -87,6 +92,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     this.config = config;
     this.jetstream = new JetstreamClient(config.jetstream);
     this.backfill = new BackfillReader(config.jetstream);
+    this.modLists = new ModListManager(config);
     this.hydrator = new ProfileHydrator(config);
     this.store = new PostStore({ size: config.buffer.size, pendingSize: config.buffer.size });
 
@@ -132,9 +138,11 @@ export class WallPipeline extends EventEmitter implements WallSource {
       this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: true };
       this.backfill.start();
     }
+    this.modLists.start();
   }
 
   async stop(): Promise<void> {
+    this.modLists.stop();
     this.backfill.stop();
     this.jetstream.stop();
     this.hydrator.stop();
@@ -320,6 +328,12 @@ export class WallPipeline extends EventEmitter implements WallSource {
 
     this.store.recordMatched();
 
+    // モデレーションリストに載っているアカウントは表示しない。
+    if (this.modLists.isBlocked(event.did)) {
+      this.store.recordRejected();
+      return;
+    }
+
     const author = this.hydrator.resolve(event.did, event.did);
     const modResult = evaluate(record, { did: event.did, handle: author.handle }, this.config.moderation);
     if (!modResult.ok) {
@@ -413,6 +427,67 @@ export class WallPipeline extends EventEmitter implements WallSource {
       const oldest = this.backfillDeleted.values().next();
       if (!oldest.done) this.backfillDeleted.delete(oldest.value);
     }
+  }
+
+  setHashtags(hashtags: string[]): string[] {
+    const cleaned = hashtags
+      .map((t) => t.trim().replace(/^[#＃]+/, ''))
+      .filter((t) => t.length > 0 && t.length <= 100)
+      .slice(0, MAX_HASHTAGS);
+    const normalized = [...new Set(cleaned.map(normalizeTag).filter(Boolean))];
+
+    // config を差し替える。表示中の投稿はそのまま残す
+    // (運営が意図して残すことも消すこともできるよう、消去は別操作にする)。
+    this.config.event.hashtags = cleaned;
+    this.config.event.normalizedHashtags = normalized;
+    log.info('監視ハッシュタグを変更しました', { hashtags: cleaned });
+    this.scheduleStateEmit();
+    return cleaned;
+  }
+
+  getJetstreamHosts(): string[] {
+    return this.jetstream.availableHosts;
+  }
+
+  switchJetstreamHost(host: string): boolean {
+    const ok = this.jetstream.switchHost(host);
+    if (ok) {
+      this.jetstreamStatus = { ...this.jetstreamStatus, connected: false, host };
+      this.scheduleStateEmit();
+    }
+    return ok;
+  }
+
+  getModLists(): ModListInfo[] {
+    return this.modLists.list();
+  }
+
+  async subscribeModList(uri: string): Promise<{ info: ModListInfo; removed: number }> {
+    const { info, dids } = await this.modLists.subscribe(uri);
+    // 既に表示されている掲載アカウントの投稿を取り下げる。
+    const blocked = new Set(dids);
+    let removed = 0;
+    const targets = [
+      ...this.store.getRecent(Number.MAX_SAFE_INTEGER),
+      ...this.store.getPending(Number.MAX_SAFE_INTEGER),
+    ];
+    for (const post of targets) {
+      if (!blocked.has(post.did)) continue;
+      this.hiddenPosts.set(post.uri, post);
+      if (this.store.remove(post.uri, 'hidden')) {
+        this.emit('remove', { uri: post.uri, reason: 'hidden' });
+        removed += 1;
+      }
+    }
+    if (removed > 0) this.scheduleStateEmit();
+    return { info, removed };
+  }
+
+  unsubscribeModList(uri: string): boolean {
+    if (!this.modLists.has(uri)) return false;
+    this.modLists.unsubscribe(uri);
+    this.scheduleStateEmit();
+    return true;
   }
 
   /** 非表示 uri を記録する。無制限に増えないよう古いものから捨てる。 */
