@@ -1,0 +1,561 @@
+/**
+ * Bluesky Live Wall - 管理画面ロジック
+ * ビルドツール不使用。素の JavaScript のみ。外部 CDN には依存しない。
+ *
+ * API 契約 (docs/task-breakdown.md):
+ *   GET  /api/admin/state   -> { state: WallState, recent: WallPost[], pending: WallPost[] }
+ *   POST /api/admin/pause   body { paused: boolean }
+ *   POST /api/admin/hide    body { uri: string }
+ *   POST /api/admin/approve body { uri: string }
+ *   POST /api/admin/block   body { did: string }
+ *   POST /api/admin/clear   (body なし)
+ * すべて Authorization: Bearer <ADMIN_TOKEN> を付与する。
+ */
+
+(function () {
+  'use strict';
+
+  // ---------- 定数 ----------
+  var STORAGE_TOKEN_KEY = 'bsky_live_wall_admin_token';
+  var STORAGE_THEME_KEY = 'bsky_live_wall_admin_theme';
+  var POLL_INTERVAL_MS = 3000;
+  var CONFIRM_TIMEOUT_MS = 3000;
+
+  // ---------- DOM 参照 ----------
+  var el = {
+    toast: document.getElementById('toast'),
+    pauseBanner: document.getElementById('pause-banner'),
+
+    loginScreen: document.getElementById('login-screen'),
+    tokenInput: document.getElementById('token-input'),
+    loginError: document.getElementById('login-error'),
+    connectBtn: document.getElementById('connect-btn'),
+    clearTokenBtn: document.getElementById('clear-token-btn'),
+
+    app: document.getElementById('app'),
+    openWallBtn: document.getElementById('open-wall-btn'),
+    themeToggleBtn: document.getElementById('theme-toggle-btn'),
+    logoutBtn: document.getElementById('logout-btn'),
+
+    jsConnected: document.getElementById('js-connected'),
+    jsHost: document.getElementById('js-host'),
+    jsReconnects: document.getElementById('js-reconnects'),
+    hashtags: document.getElementById('hashtags'),
+    modMode: document.getElementById('mod-mode'),
+    uptime: document.getElementById('uptime'),
+
+    statMatched: document.getElementById('stat-matched'),
+    statDisplayed: document.getElementById('stat-displayed'),
+    statRejected: document.getElementById('stat-rejected'),
+    statAuthors: document.getElementById('stat-authors'),
+
+    pauseToggle: document.getElementById('pause-toggle'),
+    pauseToggleLabel: document.getElementById('pause-toggle-label'),
+    clearAllBtn: document.getElementById('clear-all-btn'),
+
+    pendingPanel: document.getElementById('pending-panel'),
+    pendingList: document.getElementById('pending-list'),
+    pendingEmpty: document.getElementById('pending-empty'),
+    pendingCount: document.getElementById('pending-count'),
+
+    recentList: document.getElementById('recent-list'),
+    recentEmpty: document.getElementById('recent-empty'),
+    recentCount: document.getElementById('recent-count'),
+  };
+
+  // ---------- 状態 ----------
+  var pollTimer = null;
+  var currentToken = '';
+  var isPaused = false;
+  var pauseRequestInFlight = false;
+
+  // ==========================================================
+  // トークン管理
+  // ==========================================================
+
+  function loadToken() {
+    try {
+      return localStorage.getItem(STORAGE_TOKEN_KEY) || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function saveToken(token) {
+    try {
+      localStorage.setItem(STORAGE_TOKEN_KEY, token);
+    } catch (e) {
+      // localStorage が使えない環境でも動作継続
+    }
+  }
+
+  function removeToken() {
+    try {
+      localStorage.removeItem(STORAGE_TOKEN_KEY);
+    } catch (e) {
+      // 無視
+    }
+  }
+
+  // ==========================================================
+  // テーマ管理
+  // ==========================================================
+
+  function loadTheme() {
+    try {
+      return localStorage.getItem(STORAGE_THEME_KEY) || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'dark' || theme === 'light') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme');
+    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var effectiveCurrent = current || (prefersDark ? 'dark' : 'light');
+    var next = effectiveCurrent === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try {
+      localStorage.setItem(STORAGE_THEME_KEY, next);
+    } catch (e) {
+      // 無視
+    }
+  }
+
+  applyTheme(loadTheme());
+
+  // ==========================================================
+  // トースト通知 (ネットワークエラー等)
+  // ==========================================================
+
+  var toastHideTimer = null;
+
+  function showToast(message) {
+    el.toast.textContent = message;
+    el.toast.hidden = false;
+    if (toastHideTimer) {
+      clearTimeout(toastHideTimer);
+    }
+    toastHideTimer = setTimeout(function () {
+      el.toast.hidden = true;
+    }, 4000);
+  }
+
+  // ==========================================================
+  // API 通信
+  // ==========================================================
+
+  /**
+   * 認証ヘッダ付きで fetch する。
+   * 401 の場合は onUnauthorized コールバックを呼ぶ。
+   * ネットワークエラーの場合は例外を投げる (呼び出し側でトースト表示する)。
+   */
+  function apiFetch(path, options) {
+    options = options || {};
+    var headers = options.headers || {};
+    headers['Authorization'] = 'Bearer ' + currentToken;
+    if (options.body) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return fetch(path, {
+      method: options.method || 'GET',
+      headers: headers,
+      body: options.body,
+    });
+  }
+
+  function handleUnauthorized() {
+    stopPolling();
+    removeToken();
+    currentToken = '';
+    showLogin('トークンが正しくありません');
+  }
+
+  // ==========================================================
+  // 画面切り替え
+  // ==========================================================
+
+  function showLogin(errorMessage) {
+    el.app.hidden = true;
+    el.loginScreen.hidden = false;
+    el.pauseBanner.hidden = true;
+    if (errorMessage) {
+      el.loginError.textContent = errorMessage;
+      el.loginError.hidden = false;
+    } else {
+      el.loginError.hidden = true;
+    }
+    el.tokenInput.value = '';
+    el.tokenInput.focus();
+  }
+
+  function showApp() {
+    el.loginScreen.hidden = true;
+    el.app.hidden = false;
+  }
+
+  // ==========================================================
+  // 状態ポーリング
+  // ==========================================================
+
+  function startPolling() {
+    stopPolling();
+    fetchState();
+    pollTimer = setInterval(fetchState, POLL_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function fetchState() {
+    apiFetch('/api/admin/state')
+      .then(function (res) {
+        if (res.status === 401) {
+          handleUnauthorized();
+          return null;
+        }
+        if (!res.ok) {
+          throw new Error('サーバーエラー (' + res.status + ')');
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        if (data) {
+          renderState(data);
+        }
+      })
+      .catch(function (err) {
+        // ネットワークエラーはバナー通知のみ。ポーリングは止めない。
+        showToast('通信エラー: 状態を取得できませんでした');
+      });
+  }
+
+  // ==========================================================
+  // 描画
+  // ==========================================================
+
+  function formatUptime(startedAt) {
+    if (!startedAt) return '-';
+    var sec = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return h + ':' + pad(m) + ':' + pad(s);
+  }
+
+  function formatTime(iso) {
+    try {
+      var d = new Date(iso);
+      var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+      return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    } catch (e) {
+      return '-';
+    }
+  }
+
+  function renderState(data) {
+    var state = data.state || {};
+    var jetstream = state.jetstream || {};
+    var stats = state.stats || {};
+
+    // Jetstream 接続状態
+    if (jetstream.connected) {
+      el.jsConnected.textContent = '接続中';
+      el.jsConnected.className = 'status-value badge badge-ok';
+    } else {
+      el.jsConnected.textContent = '切断';
+      el.jsConnected.className = 'status-value badge badge-error';
+    }
+    el.jsHost.textContent = jetstream.host || '-';
+    el.jsReconnects.textContent = (jetstream.reconnects != null) ? String(jetstream.reconnects) : '-';
+
+    // ハッシュタグ / モード
+    el.hashtags.textContent = (state.hashtags && state.hashtags.length) ? state.hashtags.map(function (t) { return '#' + t; }).join(' ') : '-';
+    el.modMode.textContent = state.moderationMode === 'approve' ? '承認モード' : '公開モード';
+    el.uptime.textContent = formatUptime(stats.startedAt);
+
+    // 統計
+    el.statMatched.textContent = stats.matched != null ? stats.matched : 0;
+    el.statDisplayed.textContent = stats.displayed != null ? stats.displayed : 0;
+    el.statRejected.textContent = stats.rejected != null ? stats.rejected : 0;
+    el.statAuthors.textContent = stats.authors != null ? stats.authors : 0;
+
+    // 一時停止状態
+    isPaused = !!state.paused;
+    updatePauseUI();
+
+    // 承認待ちパネルの表示切替 (approve モードのみ)
+    var showPending = state.moderationMode === 'approve';
+    el.pendingPanel.hidden = !showPending;
+
+    renderPendingList(data.pending || []);
+    renderRecentList(data.recent || []);
+  }
+
+  function updatePauseUI() {
+    el.pauseToggle.setAttribute('aria-pressed', isPaused ? 'true' : 'false');
+    el.pauseToggleLabel.textContent = isPaused ? '停止中' : '稼働中';
+    el.pauseBanner.hidden = !isPaused;
+  }
+
+  function renderPendingList(posts) {
+    el.pendingCount.textContent = String(posts.length);
+    el.pendingList.innerHTML = '';
+    el.pendingEmpty.hidden = posts.length > 0;
+    posts.forEach(function (post) {
+      el.pendingList.appendChild(buildPostItem(post, { approve: true, hide: true, block: true }));
+    });
+  }
+
+  function renderRecentList(posts) {
+    el.recentCount.textContent = String(posts.length);
+    el.recentList.innerHTML = '';
+    el.recentEmpty.hidden = posts.length > 0;
+    posts.forEach(function (post) {
+      el.recentList.appendChild(buildPostItem(post, { approve: false, hide: true, block: true }));
+    });
+  }
+
+  /**
+   * 投稿 1 件分の <li> を構築する。
+   * XSS 対策: 投稿本文・表示名等はすべて textContent で挿入する。
+   */
+  function buildPostItem(post, actions) {
+    var li = document.createElement('li');
+    li.className = 'post-item';
+
+    var head = document.createElement('div');
+    head.className = 'post-item-head';
+
+    var author = document.createElement('span');
+    author.className = 'post-author';
+    var displayName = (post.author && post.author.displayName) || (post.author && post.author.handle) || post.did || '(不明)';
+    author.textContent = displayName;
+    head.appendChild(author);
+
+    if (post.author && post.author.handle) {
+      var handle = document.createElement('span');
+      handle.className = 'post-handle';
+      handle.textContent = '@' + post.author.handle;
+      head.appendChild(handle);
+    }
+
+    var time = document.createElement('span');
+    time.className = 'post-time';
+    time.textContent = formatTime(post.createdAt);
+    head.appendChild(time);
+
+    li.appendChild(head);
+
+    var text = document.createElement('div');
+    text.className = 'post-text';
+    text.textContent = post.text || '';
+    li.appendChild(text);
+
+    var meta = document.createElement('div');
+    meta.className = 'post-meta';
+    var imageCount = (post.images && post.images.length) || 0;
+    meta.textContent = imageCount > 0 ? '画像 ' + imageCount + ' 枚' : '画像なし';
+    li.appendChild(meta);
+
+    var actionsRow = document.createElement('div');
+    actionsRow.className = 'post-actions';
+
+    if (actions.approve) {
+      var approveBtn = document.createElement('button');
+      approveBtn.className = 'btn btn-primary btn-small';
+      approveBtn.textContent = '承認';
+      approveBtn.addEventListener('click', function () {
+        callAdminApi('/api/admin/approve', { uri: post.uri })
+          .then(function () { fetchState(); })
+          .catch(function () { showToast('承認に失敗しました'); });
+      });
+      actionsRow.appendChild(approveBtn);
+    }
+
+    if (actions.hide) {
+      var hideBtn = document.createElement('button');
+      hideBtn.className = 'btn btn-neutral btn-small';
+      hideBtn.textContent = '非表示';
+      hideBtn.addEventListener('click', function () {
+        callAdminApi('/api/admin/hide', { uri: post.uri })
+          .then(function () { fetchState(); })
+          .catch(function () { showToast('非表示処理に失敗しました'); });
+      });
+      actionsRow.appendChild(hideBtn);
+    }
+
+    if (actions.block && post.did) {
+      var blockBtn = makeInlineConfirmButton({
+        label: '投稿者をブロック',
+        confirmLabel: '本当に？',
+        className: 'btn btn-danger btn-small',
+        onConfirm: function () {
+          callAdminApi('/api/admin/block', { did: post.did })
+            .then(function () { fetchState(); })
+            .catch(function () { showToast('ブロックに失敗しました'); });
+        },
+      });
+      actionsRow.appendChild(blockBtn);
+    }
+
+    li.appendChild(actionsRow);
+
+    return li;
+  }
+
+  /**
+   * インライン二段階確認ボタンを作る。
+   * 1 回目のクリックで「本当に？」に変わり、3 秒以内に再クリックで確定。
+   * window.confirm 等のブラウザダイアログは使用しない。
+   */
+  function makeInlineConfirmButton(opts) {
+    var btn = document.createElement('button');
+    btn.className = opts.className;
+    btn.textContent = opts.label;
+
+    var confirming = false;
+    var resetTimer = null;
+
+    function reset() {
+      confirming = false;
+      btn.textContent = opts.label;
+      btn.classList.remove('btn-confirming');
+      if (resetTimer) {
+        clearTimeout(resetTimer);
+        resetTimer = null;
+      }
+    }
+
+    btn.addEventListener('click', function () {
+      if (!confirming) {
+        confirming = true;
+        btn.textContent = opts.confirmLabel;
+        btn.classList.add('btn-confirming');
+        resetTimer = setTimeout(reset, CONFIRM_TIMEOUT_MS);
+        return;
+      }
+      reset();
+      opts.onConfirm();
+    });
+
+    return btn;
+  }
+
+  function callAdminApi(path, bodyObj) {
+    var options = { method: 'POST' };
+    if (bodyObj !== undefined) {
+      options.body = JSON.stringify(bodyObj);
+    }
+    return apiFetch(path, options).then(function (res) {
+      if (res.status === 401) {
+        handleUnauthorized();
+        throw new Error('unauthorized');
+      }
+      if (!res.ok) {
+        throw new Error('request failed: ' + res.status);
+      }
+      return res;
+    });
+  }
+
+  // ==========================================================
+  // イベントハンドラ
+  // ==========================================================
+
+  el.connectBtn.addEventListener('click', function () {
+    var token = el.tokenInput.value || '';
+    currentToken = token;
+    saveToken(token);
+    connect();
+  });
+
+  el.tokenInput.addEventListener('keydown', function (evt) {
+    if (evt.key === 'Enter') {
+      el.connectBtn.click();
+    }
+  });
+
+  el.clearTokenBtn.addEventListener('click', function () {
+    removeToken();
+    el.tokenInput.value = '';
+  });
+
+  el.logoutBtn.addEventListener('click', function () {
+    stopPolling();
+    removeToken();
+    currentToken = '';
+    showLogin();
+  });
+
+  el.openWallBtn.addEventListener('click', function () {
+    window.open('/wall', '_blank', 'noopener');
+  });
+
+  el.themeToggleBtn.addEventListener('click', toggleTheme);
+
+  el.pauseToggle.addEventListener('click', function () {
+    if (pauseRequestInFlight) return;
+    var nextPaused = !isPaused;
+    pauseRequestInFlight = true;
+    callAdminApi('/api/admin/pause', { paused: nextPaused })
+      .then(function () {
+        isPaused = nextPaused;
+        updatePauseUI();
+      })
+      .catch(function () {
+        showToast('一時停止の切り替えに失敗しました');
+      })
+      .then(function () {
+        pauseRequestInFlight = false;
+        fetchState();
+      });
+  });
+
+  var clearAllInlineBtn = makeInlineConfirmButton({
+    label: '全消去',
+    confirmLabel: '本当に？',
+    className: 'btn btn-danger',
+    onConfirm: function () {
+      callAdminApi('/api/admin/clear')
+        .then(function () { fetchState(); })
+        .catch(function () { showToast('全消去に失敗しました'); });
+    },
+  });
+  el.clearAllBtn.parentNode.replaceChild(clearAllInlineBtn, el.clearAllBtn);
+  el.clearAllBtn = clearAllInlineBtn;
+
+  // ==========================================================
+  // 起動
+  // ==========================================================
+
+  function connect() {
+    showApp();
+    startPolling();
+  }
+
+  function init() {
+    var savedToken = loadToken();
+    currentToken = savedToken;
+    // トークンが空でもローカル運用では接続可能なので、
+    // 保存済みトークンが空文字列であっても自動接続を試みる。
+    // ただし一度も接続操作をしていない初回起動時は入力画面を出す。
+    showLogin();
+    el.tokenInput.value = savedToken;
+  }
+
+  init();
+})();

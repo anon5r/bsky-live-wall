@@ -111,3 +111,12 @@ Bluesky --(WebSocket: Jetstream v2)--> [ingest] タグ判定 -> モデレーシ�
 ## ライセンス
 
 MIT
+
+## テスト
+
+```bash
+pnpm test
+```
+
+タグ判定 (`src/ingest/hashtag-matcher.ts`) とモデレーション (`src/ingest/moderator.ts`) の
+純粋ロジックを対象にした単体テストが `test/` にあります。ビルド成果物 (`dist/`) に対して実行します。
