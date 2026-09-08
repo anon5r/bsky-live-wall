@@ -118,6 +118,7 @@ Bluesky --(WebSocket: Jetstream v2)--> [ingest] タグ判定 -> モデレーシ�
 | [docs/architecture.md](./docs/architecture.md) | アーキテクチャと設計判断 |
 | [docs/operations.md](./docs/operations.md) | イベント当日の運用手順 |
 | [docs/task-breakdown.md](./docs/task-breakdown.md) | 作業分割と API 契約 |
+| [docs/roadmap.md](./docs/roadmap.md) | マルチテナント化計画のレビューと今後の実装計画 |
 
 ## バックフィル (起動前の投稿を拾う)
 
