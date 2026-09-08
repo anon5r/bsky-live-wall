@@ -1,0 +1,268 @@
+# デプロイ手順 (コンテナ / LXC / リモート公開)
+
+会場 PC でのローカル運用については [README](../README.md) を参照してください。
+本書はサーバーで常時稼働させ、リモートから利用する場合の手順です。
+
+## 0. リモート公開する前に必ず読む
+
+ローカル運用とリモート公開では、必要な設定が異なります。
+
+| 項目 | ローカル運用 | リモート公開 |
+| --- | --- | --- |
+| `ADMIN_TOKEN` | 空でよい (localhost からのみ操作可) | **必須** |
+| `TRUST_PROXY` | `false` | **`true`** (リバースプロキシ配下の場合) |
+| TLS | 不要 | **必須** |
+
+### なぜ `TRUST_PROXY` が必要か
+
+`ADMIN_TOKEN` が空のとき、管理 API は「loopback アドレスからのアクセスのみ許可」で保護されます。
+ところが**リバースプロキシを挟むと、リモートの利用者もプロキシの loopback アドレスとして
+見えてしまいます。** この状態を放置すると、インターネット上の誰もが管理 API を操作できます。
+
+`TRUST_PROXY=true` にすると、
+
+1. `X-Forwarded-For` から実クライアント IP を判定するようになる
+2. トークンなしの loopback 例外が**無効化**される
+3. `ADMIN_TOKEN` が未設定なら**起動を拒否する**
+
+という保護が入ります。プロキシ配下では必ず有効にしてください。
+
+### トークンの生成
+
+```bash
+openssl rand -hex 32
+```
+
+### 総当たり対策
+
+管理 API の認証失敗が同一 IP から 5 分間に 10 回を超えると、その IP を一時的に 429 で拒否します。
+`TRUST_PROXY` が正しく設定されていないと全アクセスが同一 IP に見え、この機構が正しく働きません。
+
+---
+
+## 1. Docker Compose (推奨)
+
+TLS 終端に Caddy を使い、証明書を自動取得する構成です。
+
+### 前提
+
+- 公開するホスト名の DNS が、このサーバーを指していること
+- 80 番と 443 番がインターネットから到達できること
+
+### 手順
+
+```bash
+git clone <このリポジトリ>
+cd bsky-live-wall
+
+cp .env.example .env
+```
+
+`.env` を編集します。
+
+```dotenv
+# イベント設定
+HASHTAGS=myevent2026
+EVENT_TITLE=My Event 2026
+
+# リモート公開に必須
+ADMIN_TOKEN=<openssl rand -hex 32 の出力>
+
+# 公開するホスト名 (compose.yaml が参照する)
+WALL_DOMAIN=wall.example.com
+```
+
+`TRUST_PROXY=true` は `compose.yaml` 側で設定済みのため、`.env` に書く必要はありません。
+
+```bash
+docker compose up -d
+docker compose logs -f app
+```
+
+| URL | 用途 |
+| --- | --- |
+| `https://wall.example.com/wall` | 会場モニター |
+| `https://wall.example.com/admin` | 管理画面 (トークンを入力) |
+| `https://wall.example.com/api/health` | ヘルスチェック |
+
+### 設定を変更したとき
+
+`.env` は起動時にしか読まれません。
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+### 更新
+
+```bash
+git pull
+docker compose build app
+docker compose up -d app
+```
+
+---
+
+## 2. Docker 単体 (プロキシは別途用意する場合)
+
+```bash
+docker build -t bsky-live-wall .
+
+docker run -d --name bsky-live-wall \
+  --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  --env-file .env \
+  -e TRUST_PROXY=true \
+  -e HOST=0.0.0.0 \
+  --read-only --tmpfs /tmp \
+  --security-opt no-new-privileges:true \
+  --memory 512m \
+  bsky-live-wall
+```
+
+`-p 127.0.0.1:3000:3000` としてホストの loopback にのみ公開し、外部への露出は
+リバースプロキシ側で制御します。
+
+イメージの実測値: **189MB**、実行ユーザーは非 root (`node`, uid 1000)。
+`HEALTHCHECK` を内蔵しているため `docker ps` の STATUS で健全性を確認できます。
+
+---
+
+## 3. LXC / 通常の Linux ホスト (systemd)
+
+コンテナ化せず、アプリケーションとして直接動かす構成です。
+
+### 手順
+
+```bash
+# LXC コンテナ内で実行
+apt update && apt install -y curl git
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+apt install -y nodejs
+corepack enable
+
+git clone <このリポジトリ> /opt/bsky-live-wall
+cd /opt/bsky-live-wall
+pnpm install --frozen-lockfile
+pnpm build
+
+cp .env.example .env
+# .env を編集 (ADMIN_TOKEN 必須、プロキシ配下なら TRUST_PROXY=true)
+
+useradd --system --no-create-home --shell /usr/sbin/nologin bskywall
+chown -R bskywall:bskywall /opt/bsky-live-wall
+
+cp deploy/bsky-live-wall.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now bsky-live-wall
+systemctl status bsky-live-wall
+journalctl -u bsky-live-wall -f
+```
+
+`deploy/bsky-live-wall.service` は権限を最小化した定義になっています
+(`ProtectSystem=strict`、`ReadOnlyPaths`、`NoNewPrivileges` 等)。
+状態はすべてメモリ上にあり書き込み先がないため、読み取り専用で動作します。
+
+### LXC コンテナ側の注意
+
+- **非特権コンテナで問題ありません。** 特権は不要です。
+- 送信方向のインターネット接続が必要です (下記 5 章)。
+- メモリは 512MB で足ります。`BUFFER_SIZE` を大きくする場合は増やしてください。
+
+---
+
+## 4. リバースプロキシの設定 (最重要)
+
+**SSE のバッファリングを無効化しないと、投稿が届かない、あるいは数十秒遅れて
+まとめて届くという症状になります。**
+
+設定例を用意しています。
+
+| ファイル | 用途 |
+| --- | --- |
+| `deploy/Caddyfile` | Caddy (compose 構成で使用) |
+| `deploy/nginx.conf` | nginx |
+
+### 要点
+
+| 設定 | 値 | 理由 |
+| --- | --- | --- |
+| バッファリング | 無効 (`proxy_buffering off` / `flush_interval -1`) | SSE が届かなくなる |
+| 圧縮 | `/api/stream` では無効 | 同上 |
+| 読み取りタイムアウト | 24 時間以上 または 無制限 | ストリームは張りっぱなしになる |
+| HTTP バージョン | 1.1 | |
+| `X-Forwarded-For` | 転送する | `TRUST_PROXY` が実 IP を判定するため |
+
+アプリ側は `X-Accel-Buffering: no` を返しているため、nginx はこれだけでも
+バッファリングを止めますが、設定でも明示しておくことを推奨します。
+
+### 管理画面の追加保護
+
+運営拠点に固定 IP があるなら、プロキシ側で `/admin` と `/api/admin` を IP 制限すると
+さらに堅くなります。設定例は `deploy/Caddyfile` と `deploy/nginx.conf` に
+コメントアウトで入れてあります。
+
+---
+
+## 5. ネットワーク要件
+
+### サーバーからの送信
+
+| 宛先 | 用途 |
+| --- | --- |
+| `wss://jetstream*.bsky.network:443` | 投稿の受信 |
+| `https://public.api.bsky.app:443` | プロフィール取得 |
+
+### 会場・視聴者からの受信
+
+| 宛先 | 用途 |
+| --- | --- |
+| サーバーの 443 | 画面表示と管理画面 |
+| `https://cdn.bsky.app:443` | 画像 (**ブラウザから直接取得する**) |
+
+会場のネットワークが `cdn.bsky.app` を遮断していると、投稿は表示されますが画像だけが
+出ません。`SHOW_IMAGES=false` にすれば画像枠ごと消せます。
+
+---
+
+## 6. 運用
+
+### 状態は永続化されない
+
+投稿・統計・ブロック・非表示はすべてメモリ上にあります。
+**再起動するとすべて失われます。** バックアップ対象はありません。
+
+イベント中に再起動が必要になった場合、`STARTUP_BACKFILL_MINUTES` の分だけ
+過去に遡って自動で復元されるため、画面は数十秒で元の状態に近づきます。
+ただし**ブロックと非表示の設定は失われます。** 恒久的に除外したい相手は
+`.env` の `BLOCK_ACTORS` に書いておいてください。
+
+### ログ
+
+| 構成 | 確認方法 |
+| --- | --- |
+| Docker Compose | `docker compose logs -f app` |
+| Docker 単体 | `docker logs -f bsky-live-wall` |
+| systemd | `journalctl -u bsky-live-wall -f` |
+
+compose 構成ではログを 10MB × 3 世代でローテーションしています。
+
+### 監視
+
+`GET /api/health` が `{"ok":true}` を返し、`jetstream.connected` が `true` であることを
+確認してください。`connected` が `false` のまま続く場合は、送信方向の WebSocket が
+遮断されている可能性があります。
+
+---
+
+## 7. トラブルシューティング
+
+| 症状 | 原因 | 対処 |
+| --- | --- | --- |
+| 起動直後に終了し「TRUST_PROXY=true では ADMIN_TOKEN が必須です」 | 意図した保護動作 | `ADMIN_TOKEN` を設定する |
+| 投稿が届かない / 数十秒遅れてまとめて届く | プロキシが SSE をバッファしている | 4 章の設定を見直す |
+| 管理画面で 401 が続く | トークン不一致 | `.env` の値とブラウザに保存された値を確認する |
+| 管理画面で 429 | 認証失敗の総当たり対策 | 5 分待つ。`TRUST_PROXY` の設定漏れも疑う |
+| `jetstream.connected` が `false` のまま | 送信方向の WebSocket が遮断されている | ファイアウォールで 443 の WebSocket を許可する |
+| ページは開くが画像だけ出ない | 視聴者側から `cdn.bsky.app` へ到達できない | `SHOW_IMAGES=false` にする |
+| コンテナが `unhealthy` | アプリが応答していない | `docker logs` を確認する |

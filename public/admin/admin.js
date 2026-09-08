@@ -40,6 +40,12 @@
     jsConnected: document.getElementById('js-connected'),
     jsHost: document.getElementById('js-host'),
     jsReconnects: document.getElementById('js-reconnects'),
+hiddenList: document.getElementById('hidden-list'),
+hiddenCount: document.getElementById('hidden-count'),
+hiddenEmpty: document.getElementById('hidden-empty'),
+blockedList: document.getElementById('blocked-list'),
+blockedCount: document.getElementById('blocked-count'),
+blockedEmpty: document.getElementById('blocked-empty'),
     hashtags: document.getElementById('hashtags'),
     modMode: document.getElementById('mod-mode'),
     uptime: document.getElementById('uptime'),
@@ -303,6 +309,8 @@
 
     renderPendingList(data.pending || []);
     renderRecentList(data.recent || []);
+    renderHiddenList(data.hidden || []);
+    renderBlockedList(data.blocked || []);
   }
 
   function updatePauseUI() {
@@ -326,6 +334,45 @@
     el.recentEmpty.hidden = posts.length > 0;
     posts.forEach(function (post) {
       el.recentList.appendChild(buildPostItem(post, { approve: false, hide: true, block: true }));
+    });
+  }
+
+  function renderHiddenList(posts) {
+    var list = posts || [];
+    el.hiddenCount.textContent = String(list.length);
+    el.hiddenList.innerHTML = '';
+    el.hiddenEmpty.hidden = list.length > 0;
+    list.forEach(function (post) {
+      el.hiddenList.appendChild(buildPostItem(post, { approve: false, hide: false, block: false, unhide: true }));
+    });
+  }
+
+  // ブロック中の投稿者。解除すると、ブロック時に取り下げた投稿も復元される。
+  function renderBlockedList(actors) {
+    var list = actors || [];
+    el.blockedCount.textContent = String(list.length);
+    el.blockedList.innerHTML = '';
+    el.blockedEmpty.hidden = list.length > 0;
+    list.forEach(function (actor) {
+      var li = document.createElement('li');
+      li.className = 'actor-item';
+
+      var name = document.createElement('span');
+      name.className = 'actor-name';
+      name.textContent = actor;
+      li.appendChild(name);
+
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-small';
+      btn.textContent = 'ブロック解除';
+      btn.addEventListener('click', function () {
+        callAdminApi('/api/admin/unblock', { did: actor })
+          .then(function () { fetchState(); })
+          .catch(function () { showToast('ブロック解除に失敗しました'); });
+      });
+      li.appendChild(btn);
+
+      el.blockedList.appendChild(li);
     });
   }
 
@@ -396,6 +443,18 @@
           .catch(function () { showToast('非表示処理に失敗しました'); });
       });
       actionsRow.appendChild(hideBtn);
+    }
+
+    if (actions.unhide) {
+      var unhideBtn = document.createElement('button');
+      unhideBtn.className = 'btn btn-primary btn-small';
+      unhideBtn.textContent = '復元';
+      unhideBtn.addEventListener('click', function () {
+        callAdminApi('/api/admin/unhide', { uri: post.uri })
+          .then(function () { fetchState(); })
+          .catch(function () { showToast('復元に失敗しました'); });
+      });
+      actionsRow.appendChild(unhideBtn);
     }
 
     if (actions.block && post.did) {

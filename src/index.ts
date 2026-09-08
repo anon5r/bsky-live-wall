@@ -17,6 +17,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // リバースプロキシ配下では loopback 例外が使えないため、トークンなしでの起動を拒否する。
+  // これを許すと、プロキシ経由の全アクセスが管理者権限を得てしまう。
+  if (config.server.trustProxy && config.admin.token === '') {
+    log.error(
+      'TRUST_PROXY=true では ADMIN_TOKEN が必須です。' +
+        '設定しないと、プロキシ経由のすべてのアクセスが管理 API を操作できてしまいます。'
+    );
+    process.exit(1);
+  }
+
   const source = createWallSource(config);
   const server = await createServer(config, source);
 

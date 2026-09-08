@@ -88,7 +88,8 @@ URL クエリで `.env` の設定を上書きできます。
 | `FILTER_LABELED` | `true` | 成人向けラベル付き投稿を除外するか |
 | `WALL_COLUMNS` | `1` | カラム数。`1` で縦に流れる。`2` 以上で横並びのグリッド |
 | `WALL_MAX_CARDS` | `40` | DOM 上に保持する最大カード数。スクロールで遡れる範囲 |
-| `ADMIN_TOKEN` | 空 | 管理 API のトークン。空の場合は localhost からのみ操作可 |
+| `ADMIN_TOKEN` | 空 | 管理 API のトークン。空の場合は localhost からのみ操作可。**リモート公開時は必須** |
+| `TRUST_PROXY` | `false` | リバースプロキシ配下で `true`。実クライアント IP を判定し、トークンを必須にする |
 | `STARTUP_BACKFILL_MINUTES` | `120` | 起動時に遡って過去の投稿を拾う分数 |
 
 ## 仕組み
@@ -117,6 +118,7 @@ Bluesky --(WebSocket: Jetstream v2)--> [ingest] タグ判定 -> モデレーシ�
 | [docs/requirements.md](./docs/requirements.md) | 要件定義 |
 | [docs/architecture.md](./docs/architecture.md) | アーキテクチャと設計判断 |
 | [docs/operations.md](./docs/operations.md) | イベント当日の運用手順 |
+| [docs/deployment.md](./docs/deployment.md) | コンテナ / LXC でのデプロイとリモート公開 |
 | [docs/task-breakdown.md](./docs/task-breakdown.md) | 作業分割と API 契約 |
 | [docs/roadmap.md](./docs/roadmap.md) | マルチテナント化計画のレビューと今後の実装計画 |
 
@@ -174,6 +176,25 @@ AppView 照合で全件が実在することを確認しています。
 ## ライセンス
 
 MIT
+
+## リモートから使う (コンテナ / LXC)
+
+サーバーで常時稼働させ、リモートから利用する場合の手順は
+[docs/deployment.md](./docs/deployment.md) を参照してください。
+Docker Compose (Caddy による TLS 自動取得)、Docker 単体、LXC + systemd の
+3 通りの構成と、リバースプロキシの設定例を用意しています。
+
+```bash
+# 最短手順 (Docker Compose)
+cp .env.example .env
+# .env に HASHTAGS / ADMIN_TOKEN / WALL_DOMAIN を設定
+docker compose up -d
+```
+
+**リバースプロキシ配下では `TRUST_PROXY=true` が必須です。** 設定しないと、
+プロキシ経由のアクセスがすべて loopback と誤認され、`ADMIN_TOKEN` が空の場合に
+誰でも管理 API を操作できてしまいます (このため `TRUST_PROXY=true` かつ
+`ADMIN_TOKEN` 未設定では起動を拒否します)。
 
 ## テスト
 

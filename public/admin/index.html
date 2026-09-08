@@ -122,6 +122,20 @@
         <ul id="recent-list" class="post-list"></ul>
         <p id="recent-empty" class="empty-msg">まだ投稿がありません。</p>
       </section>
+
+      <!-- 非表示にした投稿 (復元可能) -->
+      <section class="panel panel-hidden">
+        <h2 class="panel-title">非表示にした投稿 <span id="hidden-count" class="panel-count">0</span></h2>
+        <ul id="hidden-list" class="post-list"></ul>
+        <p id="hidden-empty" class="empty-msg">非表示にした投稿はありません。</p>
+      </section>
+
+      <!-- ブロック中の投稿者 (解除可能) -->
+      <section class="panel panel-blocked">
+        <h2 class="panel-title">ブロック中の投稿者 <span id="blocked-count" class="panel-count">0</span></h2>
+        <ul id="blocked-list" class="actor-list"></ul>
+        <p id="blocked-empty" class="empty-msg">ブロック中の投稿者はいません。</p>
+      </section>
     </main>
   </div>
 

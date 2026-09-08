@@ -43,6 +43,11 @@ export class PostStore {
     return this.byUri.has(uri) || this.pendingByUri.has(uri);
   }
 
+  /** 表示中・承認待ちから 1 件取り出す。存在しなければ undefined。 */
+  get(uri: string): WallPost | undefined {
+    return this.byUri.get(uri) ?? this.pendingByUri.get(uri);
+  }
+
   /** 表示対象として追加する。上限超過時は最古のものを追い出す。 */
   add(post: WallPost): void {
     if (this.byUri.has(post.uri)) return;

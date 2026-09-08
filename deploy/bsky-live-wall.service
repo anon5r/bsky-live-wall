@@ -1,0 +1,56 @@
+# LXC コンテナ内 (または通常の Linux ホスト) で systemd サービスとして動かす場合の定義。
+#
+#   1. /opt/bsky-live-wall にリポジトリを配置し、pnpm install && pnpm build を実行する
+#   2. /opt/bsky-live-wall/.env を用意する (リモート公開時は ADMIN_TOKEN 必須)
+#   3. useradd --system --no-create-home --shell /usr/sbin/nologin bskywall
+#   4. chown -R bskywall:bskywall /opt/bsky-live-wall
+#   5. cp deploy/bsky-live-wall.service /etc/systemd/system/
+#   6. systemctl daemon-reload && systemctl enable --now bsky-live-wall
+
+[Unit]
+Description=Bluesky Live Wall
+Documentation=https://github.com/anon5r/bsky-live-wall
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bskywall
+Group=bskywall
+WorkingDirectory=/opt/bsky-live-wall
+EnvironmentFile=/opt/bsky-live-wall/.env
+ExecStart=/usr/bin/node dist/index.js
+
+# アプリ側で SIGTERM を受けて graceful shutdown する (src/index.ts)。
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# イベント中に落ちたままにしない。
+Restart=always
+RestartSec=3
+
+# 権限の最小化
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# 状態はメモリ上のみで、書き込む先はない。
+ReadOnlyPaths=/opt/bsky-live-wall
+
+# リソース上限
+MemoryMax=512M
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bsky-live-wall
+
+[Install]
+WantedBy=multi-user.target

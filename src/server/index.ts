@@ -18,7 +18,9 @@ const logger = createLogger('server');
 /** Fastify インスタンスを組み立て、全ルートを登録して返す。 */
 export async function createServer(config: AppConfig, source: WallSource): Promise<FastifyInstance> {
   // Fastify 標準ロガーは無効化し、src/shared/logger.ts に統一する。
-  const app = Fastify({ logger: false });
+  // trustProxy を有効にすると request.ip が X-Forwarded-For 由来の
+  // 実クライアント IP になる。リバースプロキシ配下では必須。
+  const app = Fastify({ logger: false, trustProxy: config.server.trustProxy });
 
   const hub = new SseHub();
 

@@ -51,6 +51,8 @@ export class WallPipeline extends EventEmitter implements WallSource {
    * 再接続時のリプレイやバックフィルで同じ投稿が再配信されても復活させないために保持する。
    */
   private readonly hiddenUris = new Set<string>();
+  /** 非表示にした投稿の実体。復元できるようにするために保持する。 */
+  private readonly hiddenPosts = new Map<string, WallPost>();
 
   /**
    * バックフィル中に拾った投稿の一時置き場。
@@ -169,6 +171,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
   }
 
   hide(uri: string): boolean {
+    this.stashHidden(uri);
     this.rememberHidden(uri);
     const removed = this.store.remove(uri, 'hidden');
     if (removed) {
@@ -176,6 +179,70 @@ export class WallPipeline extends EventEmitter implements WallSource {
       this.scheduleStateEmit();
     }
     return removed;
+  }
+
+  unhide(uri: string): boolean {
+    const post = this.hiddenPosts.get(uri);
+    if (!post) return false;
+    this.hiddenPosts.delete(uri);
+    this.hiddenUris.delete(uri);
+    this.restore(post);
+    this.scheduleStateEmit();
+    return true;
+  }
+
+  getHidden(limit: number): WallPost[] {
+    const n = Math.max(0, limit);
+    return [...this.hiddenPosts.values()].sort((a, b) => b.timeUs - a.timeUs).slice(0, n);
+  }
+
+  getBlockedActors(): string[] {
+    return [...this.config.moderation.blockActors];
+  }
+
+  unblockActor(actor: string): number {
+    const needle = actor.toLowerCase();
+    const idx = this.config.moderation.blockActors.indexOf(needle);
+    if (idx >= 0) this.config.moderation.blockActors.splice(idx, 1);
+
+    // ブロック時に取り下げた投稿を戻す。
+    let count = 0;
+    for (const post of [...this.hiddenPosts.values()]) {
+      if (post.did.toLowerCase() !== needle && post.author.handle.toLowerCase() !== needle) continue;
+      this.hiddenPosts.delete(post.uri);
+      this.hiddenUris.delete(post.uri);
+      this.restore(post);
+      count += 1;
+    }
+    this.scheduleStateEmit();
+    return count;
+  }
+
+  /**
+   * 復元した投稿を表示へ戻す。
+   * 既に表示中の最新より古ければ history として下へ積み、
+   * 最新であれば通常の新着として上へ差し込む。
+   */
+  private restore(post: WallPost): void {
+    const newest = this.store.getRecent(1)[0];
+    if (newest && newest.timeUs > post.timeUs) {
+      this.store.addHistory([post]);
+      if (!this.paused) this.emit('history', [post]);
+      return;
+    }
+    this.store.add(post);
+    if (!this.paused) this.emit('post', post);
+  }
+
+  /** 非表示にする前に投稿の実体を控える。 */
+  private stashHidden(uri: string): void {
+    const post = this.store.get(uri);
+    if (!post) return;
+    this.hiddenPosts.set(uri, post);
+    if (this.hiddenPosts.size > HIDDEN_URI_LIMIT) {
+      const oldest = this.hiddenPosts.keys().next();
+      if (!oldest.done) this.hiddenPosts.delete(oldest.value);
+    }
   }
 
   approve(uri: string): boolean {
@@ -196,6 +263,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     let count = 0;
     for (const post of targets) {
       if (post.did.toLowerCase() === needle || post.author.handle.toLowerCase() === needle) {
+        this.hiddenPosts.set(post.uri, post);
         this.rememberHidden(post.uri);
         if (this.store.remove(post.uri, 'hidden')) {
           this.emit('remove', { uri: post.uri, reason: 'hidden' });

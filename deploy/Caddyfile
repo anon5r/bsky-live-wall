@@ -1,0 +1,37 @@
+# Caddy は Let's Encrypt の証明書を自動取得する。
+# WALL_DOMAIN の DNS がこのホストを指していること、80/443 が開いていることが前提。
+
+{$WALL_DOMAIN} {
+	encode zstd gzip
+
+	# SSE はバッファリングしてはいけない。
+	# flush_interval -1 で即時フラッシュにする。
+	@sse path /api/stream
+	handle @sse {
+		reverse_proxy app:3000 {
+			flush_interval -1
+			transport http {
+				# ストリームは長時間つながり続けるため、読み取りタイムアウトを設けない。
+				read_timeout 0
+			}
+		}
+	}
+
+	# 管理画面は追加で IP 制限をかけられる。
+	# 運営拠点の固定 IP がある場合は下のコメントを外して使う。
+	# @admin path /admin* /api/admin*
+	# handle @admin {
+	# 	@denied not remote_ip 203.0.113.0/24
+	# 	respond @denied 403
+	# 	reverse_proxy app:3000
+	# }
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

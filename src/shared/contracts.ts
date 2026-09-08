@@ -48,10 +48,18 @@ export interface WallSource {
   setPaused(paused: boolean): WallState;
   /** 個別投稿を非表示にする。 */
   hide(uri: string): boolean;
+  /** 非表示にした投稿を復元する。 */
+  unhide(uri: string): boolean;
+  /** 非表示にした投稿の一覧を新しい順で返す。 */
+  getHidden(limit: number): WallPost[];
   /** 承認待ちの投稿を表示へ昇格させる。 */
   approve(uri: string): boolean;
   /** 投稿者をブロックし、その投稿を表示から取り下げる。 */
   blockActor(actor: string): number;
+  /** 投稿者のブロックを解除し、取り下げた投稿を復元する。復元件数を返す。 */
+  unblockActor(actor: string): number;
+  /** ブロック中の投稿者一覧 (DID またはハンドル)。 */
+  getBlockedActors(): string[];
   /** 表示中の投稿をすべて消去する。 */
   clear(): void;
 }

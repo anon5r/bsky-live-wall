@@ -14,6 +14,8 @@ export interface AppConfig {
     port: number;
     host: string;
     logLevel: string;
+    /** リバースプロキシ配下で動かすか。true なら X-Forwarded-For を信頼する。 */
+    trustProxy: boolean;
   };
   jetstream: {
     hosts: string[];
@@ -121,6 +123,7 @@ export function loadConfig(): AppConfig {
       port: num('PORT', 3000),
       host: str('HOST', '0.0.0.0'),
       logLevel: str('LOG_LEVEL', 'info'),
+      trustProxy: bool('TRUST_PROXY', false),
     },
     jetstream: {
       hosts: list('JETSTREAM_HOSTS', [

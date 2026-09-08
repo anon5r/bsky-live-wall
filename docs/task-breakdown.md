@@ -34,9 +34,11 @@
 
 | メソッド | パス | body | 説明 |
 | --- | --- | --- | --- |
-| GET | `/api/admin/state` | - | 状態取得 |
+| GET | `/api/admin/state` | - | 状態取得 (`state` / `recent` / `pending` / `hidden` / `blocked`) |
 | POST | `/api/admin/pause` | `{ paused: boolean }` | 一時停止 |
 | POST | `/api/admin/hide` | `{ uri: string }` | 個別非表示 |
 | POST | `/api/admin/approve` | `{ uri: string }` | 承認モード時の公開 |
+| POST | `/api/admin/unhide` | `{ uri: string }` | 非表示の復元 |
 | POST | `/api/admin/block` | `{ did: string }` | 投稿者ブロック |
+| POST | `/api/admin/unblock` | `{ did: string }` | ブロック解除 (取り下げた投稿も復元) |
 | POST | `/api/admin/clear` | - | 表示中の全消去 |

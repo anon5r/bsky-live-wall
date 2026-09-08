@@ -1,0 +1,64 @@
+# リモートから利用する構成。
+# Caddy が TLS を終端し、アプリへ転送する。
+#
+#   1. .env を用意する (ADMIN_TOKEN を必ず設定する)
+#   2. WALL_DOMAIN に公開するホスト名を設定する
+#   3. docker compose up -d
+services:
+  app:
+    build: .
+    image: bsky-live-wall:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # リバースプロキシ配下なので必須。
+      # これがないと、プロキシ経由の全アクセスが loopback と誤認され
+      # 管理 API を素通りさせてしまう。
+      TRUST_PROXY: "true"
+      HOST: "0.0.0.0"
+      PORT: "3000"
+    expose:
+      - "3000"
+    # ホストへは直接公開しない。Caddy 経由のみとする。
+    networks:
+      - wall
+    # 状態はすべてメモリ上にあるため、揮発してよい。
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WALL_DOMAIN: ${WALL_DOMAIN:?WALL_DOMAIN を .env に設定してください}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - wall
+
+networks:
+  wall:
+
+volumes:
+  caddy_data:
+  caddy_config:
