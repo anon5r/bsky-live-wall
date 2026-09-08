@@ -11,7 +11,9 @@
 |  bsky-live-wall (Node.js 単一プロセス)                 |
 |                                                       |
 |  [ingest]                                             |
-|   JetstreamClient --> HashtagMatcher --> Moderator     |
+|   JetstreamClient (ライブ) --+                          |
+|   BackfillReader  (過去) ----+-> HashtagMatcher         |
+|                                    -> Moderator        |
 |         |                                             |
 |         v                                             |
 |   ProfileHydrator (public.api.bsky.app, TTL cache)     |
@@ -67,6 +69,7 @@
 | 状態はメモリのリングバッファ | イベント中の一時表示が目的。DB を持たないことで運用コストとレイテンシを下げる |
 | プロフィール取得は公開 AppView | 認証情報なしで動く。イベント当日にアカウント都合で止まるリスクを排除する |
 | プロフィール解決を非ブロッキング化 | 解決前でもハンドルのみで先に表示し、解決後に `profile` 差分イベントで更新する |
+| バックフィルをライブ接続と分離 | 1 本の接続で過去から再生すると現在に追いつくまで数十秒間ライブ投稿が届かない。別接続にすることでライブは常に 1 秒以内に届く |
 | フロントエンドはビルド不要の素の JS | 会場 PC で `git clone` して即動かせる。ビルド失敗という当日の障害要因を消す |
 
 ## 5. 障害時の挙動

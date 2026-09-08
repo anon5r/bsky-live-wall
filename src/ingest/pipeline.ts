@@ -13,6 +13,7 @@ import type {
 import type { WallSource, WallSourceEvents } from '../shared/contracts.js';
 import { createLogger } from '../shared/logger.js';
 import { JetstreamClient } from './jetstream-client.js';
+import { BackfillReader } from './backfill-reader.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { evaluate } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
@@ -27,6 +28,7 @@ const POST_COLLECTION = 'app.bsky.feed.post';
 export class WallPipeline extends EventEmitter implements WallSource {
   private readonly config: AppConfig;
   private readonly jetstream: JetstreamClient;
+  private readonly backfill: BackfillReader;
   private readonly hydrator: ProfileHydrator;
   private readonly store: PostStore;
 
@@ -37,6 +39,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     lastEventAt: null,
     reconnects: 0,
     cursor: null,
+    backfilling: false,
   };
 
   private stateEmitTimer: NodeJS.Timeout | null = null;
@@ -56,6 +59,7 @@ export class WallPipeline extends EventEmitter implements WallSource {
     super();
     this.config = config;
     this.jetstream = new JetstreamClient(config.jetstream);
+    this.backfill = new BackfillReader(config.jetstream);
     this.hydrator = new ProfileHydrator(config);
     this.store = new PostStore({ size: config.buffer.size, pendingSize: config.buffer.size });
 
@@ -76,6 +80,14 @@ export class WallPipeline extends EventEmitter implements WallSource {
     });
     this.jetstream.on('commit', (event) => this.handleCommit(event));
 
+    // バックフィルはライブ受信と並行して走る。取り込み口は同じで、
+    // 重複した投稿は PostStore が uri で弾く。
+    this.backfill.on('commit', (event) => this.handleCommit(event));
+    this.backfill.on('done', () => {
+      this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: false };
+      this.scheduleStateEmit();
+    });
+
     this.hydrator.on('profile', ({ did, author }) => {
       const updated = this.store.updateAuthor(did, author);
       if (updated.length > 0) {
@@ -85,10 +97,17 @@ export class WallPipeline extends EventEmitter implements WallSource {
   }
 
   async start(): Promise<void> {
+    // ライブ接続を先に張り、過去の取り込みは別接続で並行して行う。
+    // こうしないと、追いつくまでの数十秒間ライブ投稿が画面に出ない。
     this.jetstream.start();
+    if (this.config.jetstream.startupBackfillMinutes > 0) {
+      this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: true };
+      this.backfill.start();
+    }
   }
 
   async stop(): Promise<void> {
+    this.backfill.stop();
     this.jetstream.stop();
     this.hydrator.stop();
     if (this.stateEmitTimer) {

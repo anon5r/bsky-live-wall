@@ -54,6 +54,8 @@ export interface JetstreamStatus {
   lastEventAt: number | null;
   reconnects: number;
   cursor: number | null;
+  /** 起動時バックフィルを実行中か。ライブ受信とは独立に進む。 */
+  backfilling: boolean;
 }
 
 /** 累計統計。 */
