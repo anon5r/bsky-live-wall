@@ -86,6 +86,31 @@ const AUDIT_LIMIT = 200;
 /** キーワードの最小文字数。短すぎると無関係な投稿を大量に拾う。 */
 const MIN_KEYWORD_LENGTH = 2;
 
+/** 監視語の入力を検証する。問題があればエラーメッセージ (文字列) を返す。 */
+function parseTerms(
+  terms: unknown[]
+): { value: string; type: 'hashtag' | 'keyword' }[] | string {
+  const parsed: { value: string; type: 'hashtag' | 'keyword' }[] = [];
+  for (const entry of terms) {
+    if (typeof entry !== 'object' || entry === null) {
+      return 'terms の要素は { value, type } のオブジェクトです';
+    }
+    const { value, type } = entry as { value?: unknown; type?: unknown };
+    if (typeof value !== 'string' || value.trim() === '') {
+      return 'value は空でない文字列で指定してください';
+    }
+    if (type !== 'hashtag' && type !== 'keyword') {
+      return "type は 'hashtag' か 'keyword' で指定してください";
+    }
+    // キーワードは短すぎると無関係な投稿を大量に拾う。
+    if (type === 'keyword' && value.trim().length < MIN_KEYWORD_LENGTH) {
+      return `キーワードは ${MIN_KEYWORD_LENGTH} 文字以上で指定してください: ${value}`;
+    }
+    parsed.push({ value, type });
+  }
+  return parsed;
+}
+
 interface AuditEntry {
   at: number;
   action: string;
@@ -114,6 +139,15 @@ function recordAudit(
   auditLog.unshift({ at: Date.now(), action, detail, ip: request.ip, actor });
   if (auditLog.length > AUDIT_LIMIT) auditLog.length = AUDIT_LIMIT;
   logger.info(`管理操作: ${action}`, { detail, ip: request.ip, actor });
+}
+
+/** `?wall=` / body.wall からウォールを解決する。省略時は既定ウォール。 */
+function pickWall(source: WallSource, id: unknown) {
+  return typeof id === 'string' && id !== '' ? source.getWall(id) : source.getDefaultWall();
+}
+
+function wallNotFound(reply: FastifyReply): FastifyReply {
+  return reply.code(404).send({ error: 'wall_not_found' });
 }
 
 export function registerAdminRoutes(
@@ -286,15 +320,26 @@ export function registerAdminRoutes(
 
   // ---- 状態と操作 ----
 
-  app.get('/api/admin/state', async (_request, reply) => {
-    const state = source.getState();
-    const recent = source.getRecent(config.buffer.backlogSize);
-    const pending = source.getPending(config.buffer.backlogSize);
+  app.get<{ Querystring: { wall?: string } }>('/api/admin/state', async (request, reply) => {
+    const wall = pickWall(source, request.query.wall);
+    if (!wall) return wallNotFound(reply);
+    const state = wall.getState();
+    const recent = wall.getRecent(config.buffer.backlogSize);
+    const pending = wall.getPending(config.buffer.backlogSize);
     const hidden = source.getHidden(config.buffer.backlogSize);
     const blocked = source.getBlockedActors();
     const modLists = source.getModLists();
     const jetstreamHosts = source.getJetstreamHosts();
-    return reply.send({ state, recent, pending, hidden, blocked, modLists, jetstreamHosts });
+    return reply.send({
+      state,
+      recent,
+      pending,
+      hidden,
+      blocked,
+      modLists,
+      jetstreamHosts,
+      walls: source.getWalls(),
+    });
   });
 
   app.post<{ Body: { paused?: unknown } }>('/api/admin/pause', async (request, reply) => {
@@ -303,7 +348,8 @@ export function registerAdminRoutes(
       return badRequest(reply, 'paused は boolean で指定してください');
     }
     recordAudit('pause', String(paused), request, undefined, sessions);
-    const state = source.setPaused(paused);
+    source.setPaused(paused);
+    const state = source.getDefaultWall().getState();
     return reply.send({ state });
   });
 
@@ -332,8 +378,10 @@ export function registerAdminRoutes(
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
+    const wall = pickWall(source, (request.body as { wall?: unknown } | undefined)?.wall);
+    if (!wall) return wallNotFound(reply);
     recordAudit('approve', uri, request, undefined, sessions);
-    const ok = source.approve(uri);
+    const ok = wall.approve(uri);
     return reply.send({ ok });
   });
 
@@ -357,12 +405,81 @@ export function registerAdminRoutes(
     return reply.send({ restored });
   });
 
+  // ---- ウォール ----
+
+  app.get('/api/admin/walls', async (_request, reply) =>
+    reply.send({ walls: source.getWalls() })
+  );
+
+  app.post<{ Body: { id?: unknown; name?: unknown; terms?: unknown } }>(
+    '/api/admin/walls',
+    async (request, reply) => {
+      const { id, name, terms } = request.body ?? {};
+      if (typeof name !== 'string' || name.trim() === '') {
+        return badRequest(reply, 'name は空でない文字列で指定してください');
+      }
+      if (!Array.isArray(terms) || terms.length === 0) {
+        return badRequest(reply, 'terms を 1 つ以上指定してください');
+      }
+      const parsed = parseTerms(terms);
+      if (typeof parsed === 'string') return badRequest(reply, parsed);
+
+      try {
+        const created = source.createWall({
+          ...(typeof id === 'string' && id !== '' ? { id } : {}),
+          name,
+          terms: parsed,
+        });
+        recordAudit('wall-create', `${created.id} (${created.name})`, request, undefined, sessions);
+        return reply.send({ wall: created });
+      } catch (err) {
+        return badRequest(reply, err instanceof Error ? err.message : 'ウォールを作成できません');
+      }
+    }
+  );
+
+  app.patch<{ Params: { id: string }; Body: { name?: unknown; display?: unknown } }>(
+    '/api/admin/walls/:id',
+    async (request, reply) => {
+      const { name, display } = request.body ?? {};
+      if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
+        return badRequest(reply, 'name は空でない文字列で指定してください');
+      }
+      const updated = source.updateWall(request.params.id, {
+        ...(typeof name === 'string' ? { name } : {}),
+        ...(typeof display === 'object' && display !== null
+          ? { display: display as Record<string, never> }
+          : {}),
+      });
+      if (!updated) return wallNotFound(reply);
+      recordAudit('wall-update', updated.id, request, undefined, sessions);
+      return reply.send({ wall: updated });
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/admin/walls/:id', async (request, reply) => {
+    const ok = source.deleteWall(request.params.id);
+    if (!ok) {
+      return badRequest(reply, '削除できません (存在しないか、既定ウォールです)');
+    }
+    recordAudit('wall-delete', request.params.id, request, undefined, sessions);
+    return reply.send({ ok: true });
+  });
+
   // ---- 監視設定 ----
 
-  app.get('/api/admin/terms', async (_request, reply) => reply.send({ terms: source.getTerms() }));
+  app.get<{ Querystring: { wall?: string } }>('/api/admin/terms', async (request, reply) => {
+    const wall = pickWall(source, request.query.wall);
+    if (!wall) return wallNotFound(reply);
+    return reply.send({ terms: wall.getTerms() });
+  });
 
   /** 監視語の一覧をまとめて差し替える。追加・削除はクライアント側で組み立てる。 */
-  app.post<{ Body: { terms?: unknown } }>('/api/admin/terms', async (request, reply) => {
+  app.post<{ Body: { terms?: unknown; wall?: unknown } }>(
+    '/api/admin/terms',
+    async (request, reply) => {
+    const wall = pickWall(source, request.body?.wall);
+    if (!wall) return wallNotFound(reply);
     const { terms } = request.body ?? {};
     if (!Array.isArray(terms)) {
       return badRequest(reply, 'terms は配列で指定してください');
@@ -372,44 +489,26 @@ export function registerAdminRoutes(
     if (terms.length === 0) {
       return badRequest(reply, '監視語を 1 つ以上指定してください');
     }
-    const parsed: { value: string; type: 'hashtag' | 'keyword' }[] = [];
-    for (const entry of terms) {
-      if (typeof entry !== 'object' || entry === null) {
-        return badRequest(reply, 'terms の要素は { value, type } のオブジェクトです');
-      }
-      const { value, type } = entry as { value?: unknown; type?: unknown };
-      if (typeof value !== 'string' || value.trim() === '') {
-        return badRequest(reply, 'value は空でない文字列で指定してください');
-      }
-      if (type !== 'hashtag' && type !== 'keyword') {
-        return badRequest(reply, "type は 'hashtag' か 'keyword' で指定してください");
-      }
-      // キーワードは短すぎると無関係な投稿を大量に拾う。
-      if (type === 'keyword' && value.trim().length < MIN_KEYWORD_LENGTH) {
-        return badRequest(
-          reply,
-          `キーワードは ${MIN_KEYWORD_LENGTH} 文字以上で指定してください: ${value}`
-        );
-      }
-      parsed.push({ value, type });
-    }
+    const parsed = parseTerms(terms);
+    if (typeof parsed === 'string') return badRequest(reply, parsed);
 
-    const applied = source.setTerms(parsed);
+    const applied = wall.setTerms(parsed);
     if (applied.length === 0) {
       return badRequest(reply, '有効な監視語が 1 つもありません');
     }
     recordAudit(
       'terms',
-      applied.map((t) => `${t.type}:${t.value}`).join(','),
+      `${wall.id}: ${applied.map((t) => `${t.type}:${t.value}`).join(',')}`,
       request,
       undefined,
       sessions
     );
     return reply.send({ terms: applied });
-  });
+    }
+  );
 
   app.get('/api/admin/jetstream', async (_request, reply) => {
-    const state = source.getState();
+    const state = source.getDefaultWall().getState();
     return reply.send({
       hosts: source.getJetstreamHosts(),
       current: state.jetstream.host,
@@ -495,9 +594,11 @@ export function registerAdminRoutes(
     return reply.send({ ok: source.unsubscribeModList(uri) });
   });
 
-  app.post('/api/admin/clear', async (request, reply) => {
-    recordAudit('clear', '', request, undefined, sessions);
-    source.clear();
+  app.post<{ Body: { wall?: unknown } }>('/api/admin/clear', async (request, reply) => {
+    const wall = pickWall(source, request.body?.wall);
+    if (!wall) return wallNotFound(reply);
+    recordAudit('clear', wall.id, request, undefined, sessions);
+    wall.clear();
     return reply.send({ ok: true });
   });
 }

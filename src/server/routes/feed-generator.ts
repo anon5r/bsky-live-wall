@@ -6,6 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../../shared/config.js';
 import type { WallSource } from '../../shared/contracts.js';
+import type { WallPost } from '../../shared/types.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -39,11 +40,11 @@ export function registerFeedGeneratorRoutes(
       const cursorTime = parseCursor(request.query.cursor);
 
       // 直近投稿を新しい順で取得し、cursor より古いものだけに絞る。
-      const all = source.getRecent(config.buffer.size);
-      const filtered = cursorTime === null ? all : all.filter((p) => p.receivedAt < cursorTime);
+      const all = source.getDefaultWall().getRecent(config.buffer.size);
+      const filtered = cursorTime === null ? all : all.filter((p: WallPost) => p.receivedAt < cursorTime);
       const page = filtered.slice(0, limit);
 
-      const feed = page.map((p) => ({ post: p.uri }));
+      const feed = page.map((p: WallPost) => ({ post: p.uri }));
       const last = page[page.length - 1];
       const nextCursor = page.length === limit && last ? String(last.receivedAt) : undefined;
 

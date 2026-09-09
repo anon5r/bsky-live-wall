@@ -76,6 +76,22 @@
     autoReturnTimer: null,
   };
 
+  /**
+   * 表示するウォールを決める。
+   * `/wall/<id>` のパス、なければ `?wall=<id>` を見る。どちらも無ければ既定ウォール。
+   */
+  function resolveWallId() {
+    const fromPath = location.pathname.replace(/^\/wall\/?/, '').replace(/\/$/, '');
+    if (fromPath) return decodeURIComponent(fromPath);
+    return params.get('wall') || '';
+  }
+
+  const wallId = resolveWallId();
+
+  function streamUrl() {
+    return '/api/stream' + (wallId ? '?wall=' + encodeURIComponent(wallId) : '');
+  }
+
   function applyDisplayConfig(display) {
     if (!display) return;
     state.display = Object.assign({}, state.display, display);
@@ -495,7 +511,13 @@
     if (!wallState) return;
 
     if (wallState.eventTitle) titleEl.textContent = wallState.eventTitle;
-    subtitleEl.textContent = wallState.eventSubtitle || '';
+    // 複数ウォール運用では、どのウォールを映しているかが分かるようにする。
+    const parts = [];
+    if (wallState.wallName && wallState.wallName !== wallState.eventTitle) {
+      parts.push(wallState.wallName);
+    }
+    if (wallState.eventSubtitle) parts.push(wallState.eventSubtitle);
+    subtitleEl.textContent = parts.join(' / ');
 
     if (Array.isArray(wallState.hashtags)) {
       state.hashtags = wallState.hashtags;
@@ -601,7 +623,7 @@
 
     let es;
     try {
-      es = new EventSource('/api/stream');
+      es = new EventSource(streamUrl());
     } catch (err) {
       scheduleReconnect();
       return;

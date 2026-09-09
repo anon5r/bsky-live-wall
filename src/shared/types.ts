@@ -89,8 +89,26 @@ export interface WallStats {
   startedAt: number;
 }
 
+/** ウォールの識別情報。複数モニターで別々の語を拾うために使う。 */
+export interface WallSummary {
+  id: string;
+  name: string;
+  terms: WatchTerm[];
+  display: DisplayConfig;
+  /** このウォールが表示中の件数 */
+  postCount: number;
+  /** このウォールの承認待ち件数 */
+  pendingCount: number;
+  /** .env から作られた既定ウォール。削除できない */
+  isDefault: boolean;
+}
+
 /** ウォール全体の状態。SSE の `state` イベントで送出される。 */
 export interface WallState {
+  /** このウォールの ID */
+  wallId: string;
+  /** このウォールの名前 */
+  wallName: string;
   /** 監視中のハッシュタグ (会場モニターのヘッダ表示に使う) */
   hashtags: string[];
   /** 監視中の語すべて (種別付き) */

@@ -62,6 +62,17 @@ export async function registerStatic(app: FastifyInstance): Promise<void> {
     return reply.sendFile('wall/index.html');
   });
 
+  /**
+   * `/wall/<id>` で個別のウォールを開く。
+   * ウォール ID の解決はクライアント側が行うため、ここでは同じ HTML を返す。
+   * 静的ファイル (`/wall/wall.js` など) と衝突しないよう拡張子付きは除外する。
+   */
+  // パラメータを ID として使える文字種に限定する。
+  // 制限しないと /wall/wall.js のような静的アセットまでこのルートが奪う。
+  app.get('/wall/:id(^[a-z0-9][a-z0-9_-]*$)', async (_request, reply) => {
+    return reply.sendFile('wall/index.html');
+  });
+
   app.get('/admin', async (_request, reply) => {
     return reply.sendFile('admin/index.html');
   });

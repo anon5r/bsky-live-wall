@@ -1,13 +1,13 @@
 /**
- * ingest 層のエントリポイント。server 層はここだけを import する。
+ * ingest 層の公開エントリポイント。
+ * server 層はここと `src/shared/contracts.ts` の型だけを参照する。
  */
 import type { AppConfig } from '../shared/config.js';
 import type { WallSource } from '../shared/contracts.js';
-import { WallPipeline } from './pipeline.js';
+import { WallManager } from './wall-manager.js';
 
-export { WallPipeline };
+export { WallManager, DEFAULT_WALL_ID } from './wall-manager.js';
 
-/** 設定から WallSource の実体を生成する。 */
 export function createWallSource(config: AppConfig): WallSource {
-  return new WallPipeline(config);
+  return new WallManager(config);
 }

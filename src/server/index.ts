@@ -12,7 +12,7 @@ import { AdminSessionStore } from './admin-session.js';
 import { registerFeedGeneratorRoutes } from './routes/feed-generator.js';
 import { registerPostsRoutes } from './routes/posts.js';
 import { registerStreamRoutes } from './routes/stream.js';
-import { SseHub } from './sse-hub.js';
+import { HubRegistry } from './hub-registry.js';
 import { registerStatic } from './static.js';
 
 const logger = createLogger('server');
@@ -24,7 +24,7 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
   // 実クライアント IP になる。リバースプロキシ配下では必須。
   const app = Fastify({ logger: false, trustProxy: config.server.trustProxy });
 
-  const hub = new SseHub();
+  const hubs = new HubRegistry();
 
   // 管理セッションはトークンログインと OAuth ログインで共有する。
   const sessions = new AdminSessionStore(config.admin.sessionTtlHours);
@@ -37,8 +37,8 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
     done();
   });
 
-  registerStreamRoutes(app, config, source, hub);
-  registerPostsRoutes(app, config, source, hub);
+  registerStreamRoutes(app, config, source, hubs);
+  registerPostsRoutes(app, config, source, hubs);
   registerAdminRoutes(app, config, source, sessions);
   await registerOAuthRoutes(app, config, sessions);
 
@@ -52,7 +52,7 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
   await registerStatic(app);
 
   app.addHook('onClose', (_instance, done) => {
-    hub.close();
+    hubs.closeAll();
     done();
   });
 
