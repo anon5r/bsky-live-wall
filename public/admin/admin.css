@@ -831,6 +831,209 @@ button {
   line-height: 1.6;
 }
 
+/* ---------- ウォール切り替え ---------- */
+
+.wall-switcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  overflow-x: auto;
+}
+
+.wall-switcher-icon {
+  color: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+
+.wall-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wall-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wall-tab:hover {
+  border-color: var(--color-primary);
+}
+
+.wall-tab[aria-selected="true"] {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.wall-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+}
+
+.wall-tab[aria-selected="false"] .wall-tab-count {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+/* 承認待ちが 1 件以上あるウォールは見落とし防止のため目立たせる。 */
+.wall-tab-pending {
+  background: var(--color-warning) !important;
+  color: #1c1f26 !important;
+}
+
+/* ---------- ウォール管理パネル ---------- */
+
+.panel-full {
+  grid-column: 1 / -1;
+}
+
+.wall-manage-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wall-manage-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+}
+
+.wall-manage-item.is-current {
+  border-color: var(--color-primary);
+}
+
+.wall-manage-main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.wall-manage-name {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wall-manage-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.wall-manage-terms {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-word;
+}
+
+.wall-manage-counts {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.wall-manage-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+
+.wall-manage-rename-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 220px;
+}
+
+.wall-manage-rename-form input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.wall-default-badge {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ---------- スコープ表示 (ウォール単位 / 全ウォール共通) ---------- */
+
+.scope-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.scope-tag-shared {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+}
+
+.scope-tag-wall {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.panel-title .scope-tag {
+  margin-left: 4px;
+  font-size: 10px;
+}
+
+.panel-subtitle {
+  margin: -6px 0 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 /* ---------- 確認ダイアログ ---------- */
 
 .confirm-dialog {

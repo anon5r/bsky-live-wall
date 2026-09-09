@@ -19,8 +19,10 @@
   // トークンは保存しない。ログイン時に一度だけ送り、以降は HttpOnly Cookie の
   // セッションで認証する。localStorage にトークンを残さないための設計。
   var STORAGE_THEME_KEY = 'bsky_live_wall_admin_theme';
+  var STORAGE_WALL_KEY = 'bsky_live_wall_admin_wall_id';
   var POLL_INTERVAL_MS = 3000;
   var CONFIRM_TIMEOUT_MS = 3000;
+  var MAX_WALLS = 10;
 
   // ---------- DOM 参照 ----------
   var el = {
@@ -94,6 +96,29 @@ loginDivider: document.getElementById('login-divider'),
     recentList: document.getElementById('recent-list'),
     recentEmpty: document.getElementById('recent-empty'),
     recentCount: document.getElementById('recent-count'),
+
+    // ウォール切り替え
+    wallSwitcher: document.getElementById('wall-switcher'),
+    wallTabs: document.getElementById('wall-tabs'),
+
+    // ウォール単位の表示ラベル
+    statusWallName: document.getElementById('status-wall-name'),
+    clearWallName: document.getElementById('clear-wall-name'),
+    watchWallName: document.getElementById('watch-wall-name'),
+    pendingWallName: document.getElementById('pending-wall-name'),
+    recentWallName: document.getElementById('recent-wall-name'),
+
+    // ウォール管理パネル
+    wallManageList: document.getElementById('wall-manage-list'),
+    wallManageCount: document.getElementById('wall-manage-count'),
+    wallNewNameInput: document.getElementById('wall-new-name-input'),
+    wallNewTermInput: document.getElementById('wall-new-term-input'),
+    wallNewTermAddBtn: document.getElementById('wall-new-term-add-btn'),
+    wallNewTermKeywordCheck: document.getElementById('wall-new-term-keyword-check'),
+    wallNewTermList: document.getElementById('wall-new-term-list'),
+    wallNewTermEmpty: document.getElementById('wall-new-term-empty'),
+    wallCreateBtn: document.getElementById('wall-create-btn'),
+    wallLimitNote: document.getElementById('wall-limit-note'),
   };
 
   // ---------- 状態 ----------
@@ -104,6 +129,36 @@ loginDivider: document.getElementById('login-divider'),
   var authConfig = { token: true, oauth: false };
   var isPaused = false;
   var pauseRequestInFlight = false;
+
+  // 選択中のウォール。空文字は「既定ウォール」を意味する。
+  // 解決後 (state.wallId を受け取った後) は具体的な ID に置き換える。
+  var currentWallId = loadWallId();
+  // 直近に取得したウォール一覧 (ウォール管理パネルの再描画や上限判定に使う)。
+  var lastWalls = [];
+  // ウォール管理パネルで改名フォームを開いているウォール ID (null なら非表示)。
+  var renamingWallId = null;
+  // ウォール新規作成フォームで積んでいる監視語。
+  var newWallTerms = [];
+
+  function loadWallId() {
+    try {
+      return localStorage.getItem(STORAGE_WALL_KEY) || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function saveWallId(id) {
+    try {
+      if (id) {
+        localStorage.setItem(STORAGE_WALL_KEY, id);
+      } else {
+        localStorage.removeItem(STORAGE_WALL_KEY);
+      }
+    } catch (e) {
+      // 無視。保存できなくても動作に支障はない。
+    }
+  }
 
   // ==========================================================
   // トークン管理
@@ -271,11 +326,25 @@ loginDivider: document.getElementById('login-divider'),
   }
 
   function fetchState() {
-    apiFetch('/api/admin/state')
+    // リクエスト発行時点のウォール ID を覚えておく。応答が返るまでの間に
+    // 別のウォールへ切り替えられた場合、古い応答で表示を巻き戻さないため。
+    var requestedWallId = currentWallId;
+    var query = requestedWallId ? '?wall=' + encodeURIComponent(requestedWallId) : '';
+    return apiFetch('/api/admin/state' + query)
       .then(function (res) {
         if (res.status === 401) {
           handleUnauthorized();
           return null;
+        }
+        if (res.status === 404) {
+          // 保存されていたウォール ID が存在しない (削除された等)。既定へ戻す。
+          if (requestedWallId) {
+            currentWallId = '';
+            saveWallId('');
+            showToast('選択していたウォールが見つからないため、既定ウォールに戻しました');
+            return fetchState();
+          }
+          throw new Error('wall not found');
         }
         if (!res.ok) {
           throw new Error('サーバーエラー (' + res.status + ')');
@@ -283,11 +352,19 @@ loginDivider: document.getElementById('login-divider'),
         return res.json();
       })
       .then(function (data) {
-        if (data) {
-          renderState(data);
+        if (!data) return;
+        if (requestedWallId !== currentWallId) {
+          // その間に選択ウォールが変わった。古い応答なので破棄する。
+          return;
         }
+        if (!currentWallId && data.state && data.state.wallId) {
+          // 「既定ウォール」を解決した具体的な ID を覚えておく。
+          currentWallId = data.state.wallId;
+          saveWallId(currentWallId);
+        }
+        renderState(data);
       })
-      .catch(function (err) {
+      .catch(function () {
         // ネットワークエラーはバナー通知のみ。ポーリングは止めない。
         showToast('通信エラー: 状態を取得できませんでした');
       });
@@ -359,6 +436,23 @@ loginDivider: document.getElementById('login-divider'),
     renderWatchSettings(data);
     renderModLists(data.modLists || []);
     refreshSessionInfo();
+
+    // ウォール単位の表示ラベルと、ウォール切り替え UI / 管理パネルの更新。
+    var wallName = state.wallName || '-';
+    el.statusWallName.textContent = wallName;
+    el.clearWallName.textContent = wallName;
+    el.watchWallName.textContent = wallName;
+    el.pendingWallName.textContent = wallName;
+    el.recentWallName.textContent = wallName;
+
+    lastWalls = data.walls || [];
+    renderWallTabs(lastWalls, state.wallId);
+    // 改名フォームを開いている間は再描画で入力内容が消えてしまうため、
+    // 一覧の再構築を止める (フォームを閉じたときに最新の内容へ更新される)。
+    if (renamingWallId === null) {
+      renderWallManageList(lastWalls, state.wallId);
+    }
+    updateWallCreateAvailability(lastWalls.length);
   }
 
   function updatePauseUI() {
@@ -473,13 +567,422 @@ loginDivider: document.getElementById('login-divider'),
 
   function saveTerms(terms, successMessage) {
     var payload = terms.map(function (t) { return { value: t.value, type: t.type }; });
-    callAdminApi('/api/admin/terms', { terms: payload })
+    callAdminApi('/api/admin/terms', { terms: payload, wall: currentWallId || undefined })
       .then(function () {
         showToast(successMessage);
         fetchState();
       })
       .catch(function () { showToast('監視対象の更新に失敗しました'); });
   }
+
+  // ==========================================================
+  // ウォール切り替え / 管理
+  // ==========================================================
+
+  // 上部のウォール切り替えタブ。ウォールが 1 個のときは表示しない。
+  function renderWallTabs(walls, activeId) {
+    el.wallSwitcher.hidden = walls.length <= 1;
+    el.wallTabs.replaceChildren();
+
+    walls.forEach(function (w) {
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'wall-tab' + (w.pendingCount > 0 ? ' wall-tab-pending' : '');
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', w.id === activeId ? 'true' : 'false');
+
+      var label = document.createElement('span');
+      label.textContent = w.name;
+      tab.appendChild(label);
+
+      var countBadge = document.createElement('span');
+      countBadge.className = 'wall-tab-count';
+      var countText = w.postCount + ' 件';
+      if (w.pendingCount > 0) countText += ' / 承認待ち ' + w.pendingCount;
+      countBadge.textContent = countText;
+      tab.appendChild(countBadge);
+
+      tab.addEventListener('click', function () { switchWall(w.id); });
+      el.wallTabs.appendChild(tab);
+    });
+  }
+
+  // 選択中のウォールを切り替える。ウォール単位の API 呼び出しはすべて
+  // currentWallId を参照するので、切り替えるだけで反映される。
+  function switchWall(id) {
+    if (!id || id === currentWallId) return;
+    currentWallId = id;
+    saveWallId(id);
+    renamingWallId = null;
+    fetchState();
+  }
+
+  // ウォール新規作成フォームが上限に達しているかどうかを反映する。
+  function updateWallCreateAvailability(count) {
+    var atLimit = count >= MAX_WALLS;
+    el.wallLimitNote.hidden = !atLimit;
+    el.wallNewNameInput.disabled = atLimit;
+    el.wallNewTermInput.disabled = atLimit;
+    el.wallNewTermAddBtn.disabled = atLimit;
+    el.wallNewTermKeywordCheck.disabled = atLimit;
+    el.wallCreateBtn.disabled = atLimit;
+  }
+
+  // ウォール管理パネルの一覧。名前 / ID / 監視語 / 件数 / 操作を並べる。
+  function renderWallManageList(walls, activeId) {
+    el.wallManageCount.textContent = String(walls.length);
+    el.wallManageList.replaceChildren();
+
+    walls.forEach(function (w) {
+      var li = document.createElement('li');
+      li.className = 'wall-manage-item' + (w.id === activeId ? ' is-current' : '');
+
+      var main = document.createElement('div');
+      main.className = 'wall-manage-main';
+
+      if (renamingWallId === w.id) {
+        main.appendChild(buildRenameForm(w));
+      } else {
+        var nameRow = document.createElement('div');
+        nameRow.className = 'wall-manage-name';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.textContent = w.name;
+        nameRow.appendChild(nameSpan);
+
+        var idSpan = document.createElement('span');
+        idSpan.className = 'wall-manage-id';
+        idSpan.textContent = w.id;
+        nameRow.appendChild(idSpan);
+
+        if (w.isDefault) {
+          var defaultBadge = document.createElement('span');
+          defaultBadge.className = 'wall-default-badge';
+          defaultBadge.textContent = '既定';
+          nameRow.appendChild(defaultBadge);
+        }
+        if (w.id === activeId) {
+          var currentBadge = document.createElement('span');
+          currentBadge.className = 'wall-default-badge';
+          currentBadge.textContent = '選択中';
+          nameRow.appendChild(currentBadge);
+        }
+        main.appendChild(nameRow);
+
+        var termsLine = document.createElement('div');
+        termsLine.className = 'wall-manage-terms';
+        var termsText = (w.terms || [])
+          .map(function (t) { return (t.type === 'hashtag' ? '#' : 'キーワード:') + t.value; })
+          .join(' / ');
+        termsLine.textContent = termsText || '(監視語なし)';
+        main.appendChild(termsLine);
+      }
+      li.appendChild(main);
+
+      var counts = document.createElement('div');
+      counts.className = 'wall-manage-counts';
+      var postBadge = document.createElement('span');
+      postBadge.className = 'panel-count';
+      postBadge.textContent = '表示 ' + w.postCount;
+      counts.appendChild(postBadge);
+      var pendingBadge = document.createElement('span');
+      pendingBadge.className = 'panel-count';
+      if (w.pendingCount > 0) pendingBadge.style.color = 'var(--color-warning)';
+      pendingBadge.textContent = '承認待ち ' + w.pendingCount;
+      counts.appendChild(pendingBadge);
+      li.appendChild(counts);
+
+      var actions = document.createElement('div');
+      actions.className = 'wall-manage-actions';
+
+      var openLink = document.createElement('a');
+      openLink.className = 'btn btn-neutral btn-small';
+      openLink.href = '/wall/' + encodeURIComponent(w.id);
+      openLink.target = '_blank';
+      openLink.rel = 'noopener';
+      var openIcon = document.createElement('i');
+      openIcon.className = 'fa-solid fa-up-right-from-square fa-fw';
+      openIcon.setAttribute('aria-hidden', 'true');
+      openLink.appendChild(openIcon);
+      openLink.appendChild(document.createTextNode(' このウォールを開く'));
+      actions.appendChild(openLink);
+
+      if (w.id !== activeId) {
+        var switchBtn = document.createElement('button');
+        switchBtn.type = 'button';
+        switchBtn.className = 'btn btn-primary btn-small';
+        var switchIcon = document.createElement('i');
+        switchIcon.className = 'fa-solid fa-arrow-right-to-bracket fa-fw';
+        switchIcon.setAttribute('aria-hidden', 'true');
+        switchBtn.appendChild(switchIcon);
+        switchBtn.appendChild(document.createTextNode(' 切替'));
+        switchBtn.addEventListener('click', function () { switchWall(w.id); });
+        actions.appendChild(switchBtn);
+      }
+
+      if (renamingWallId !== w.id) {
+        var renameBtn = document.createElement('button');
+        renameBtn.type = 'button';
+        renameBtn.className = 'btn btn-neutral btn-small';
+        var renameIcon = document.createElement('i');
+        renameIcon.className = 'fa-solid fa-pen fa-fw';
+        renameIcon.setAttribute('aria-hidden', 'true');
+        renameBtn.appendChild(renameIcon);
+        renameBtn.appendChild(document.createTextNode(' 改名'));
+        renameBtn.addEventListener('click', function () {
+          renamingWallId = w.id;
+          renderWallManageList(lastWalls, activeId);
+        });
+        actions.appendChild(renameBtn);
+      }
+
+      // 既定ウォールは削除できない。ボタン自体を出さない。
+      if (!w.isDefault) {
+        var deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'btn btn-danger btn-small';
+        var deleteIcon = document.createElement('i');
+        deleteIcon.className = 'fa-solid fa-trash fa-fw';
+        deleteIcon.setAttribute('aria-hidden', 'true');
+        deleteBtn.appendChild(deleteIcon);
+        deleteBtn.appendChild(document.createTextNode(' 削除'));
+        deleteBtn.addEventListener('click', function () { requestDeleteWall(w); });
+        actions.appendChild(deleteBtn);
+      }
+
+      li.appendChild(actions);
+      el.wallManageList.appendChild(li);
+    });
+  }
+
+  // 改名用のインラインフォーム。<dialog> や prompt は使わない。
+  function buildRenameForm(wall) {
+    var form = document.createElement('form');
+    form.className = 'wall-manage-rename-form';
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = wall.name;
+    input.setAttribute('aria-label', 'ウォール名');
+    form.appendChild(input);
+
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'submit';
+    saveBtn.className = 'btn btn-primary btn-small';
+    var saveIcon = document.createElement('i');
+    saveIcon.className = 'fa-solid fa-check fa-fw';
+    saveIcon.setAttribute('aria-hidden', 'true');
+    saveBtn.appendChild(saveIcon);
+    form.appendChild(saveBtn);
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-ghost btn-small';
+    var cancelIcon = document.createElement('i');
+    cancelIcon.className = 'fa-solid fa-xmark fa-fw';
+    cancelIcon.setAttribute('aria-hidden', 'true');
+    cancelBtn.appendChild(cancelIcon);
+    cancelBtn.addEventListener('click', function () {
+      renamingWallId = null;
+      renderWallManageList(lastWalls, currentWallId);
+    });
+    form.appendChild(cancelBtn);
+
+    form.addEventListener('submit', function (evt) {
+      evt.preventDefault();
+      submitRenameWall(wall, input.value);
+    });
+
+    setTimeout(function () {
+      input.focus();
+      input.select();
+    }, 0);
+
+    return form;
+  }
+
+  function submitRenameWall(wall, newName) {
+    newName = (newName || '').trim();
+    if (!newName) {
+      showToast('ウォール名を入力してください');
+      return;
+    }
+    apiFetch('/api/admin/walls/' + encodeURIComponent(wall.id), {
+      method: 'PATCH',
+      body: JSON.stringify({ name: newName }),
+    })
+      .then(function (res) {
+        if (res.status === 401) {
+          handleUnauthorized();
+          throw new Error('unauthorized');
+        }
+        if (!res.ok) throw new Error('request failed');
+        return res.json();
+      })
+      .then(function () {
+        renamingWallId = null;
+        showToast('ウォール名を変更しました');
+        fetchState();
+      })
+      .catch(function (err) {
+        if (err && err.message === 'unauthorized') return;
+        showToast('名前の変更に失敗しました');
+      });
+  }
+
+  // 削除は既存の <dialog> 確認を使う。誤操作でウォールごと消えるのを防ぐため。
+  function requestDeleteWall(wall) {
+    openConfirm('ウォール「' + wall.name + '」を削除します。よろしいですか？ 表示中の投稿もすべて失われます。', function () {
+      apiFetch('/api/admin/walls/' + encodeURIComponent(wall.id), { method: 'DELETE' })
+        .then(function (res) {
+          if (res.status === 401) {
+            handleUnauthorized();
+            throw new Error('unauthorized');
+          }
+          if (!res.ok) throw new Error('request failed');
+          return res.json();
+        })
+        .then(function () {
+          showToast('ウォール「' + wall.name + '」を削除しました');
+          if (currentWallId === wall.id) {
+            // 選択中のウォールが消えた場合は既定ウォールへ切り替える。
+            currentWallId = '';
+            saveWallId('');
+          }
+          fetchState();
+        })
+        .catch(function (err) {
+          if (err && err.message === 'unauthorized') return;
+          showToast('削除に失敗しました');
+        });
+    });
+  }
+
+  // ---- ウォール新規作成フォーム ----
+
+  function renderNewWallTerms() {
+    el.wallNewTermList.replaceChildren();
+    el.wallNewTermEmpty.hidden = newWallTerms.length > 0;
+
+    newWallTerms.forEach(function (term, idx) {
+      var li = document.createElement('li');
+      li.className = 'term-chip term-chip-' + term.type;
+
+      var icon = document.createElement('i');
+      icon.className = (term.type === 'hashtag' ? 'fa-solid fa-hashtag' : 'fa-solid fa-font');
+      icon.setAttribute('aria-hidden', 'true');
+      li.appendChild(icon);
+
+      var label = document.createElement('span');
+      label.className = 'term-label';
+      label.textContent = term.value;
+      li.appendChild(label);
+
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'term-remove';
+      remove.setAttribute('aria-label', term.value + ' を削除');
+      remove.title = '削除';
+      var removeIcon = document.createElement('i');
+      removeIcon.className = 'fa-solid fa-xmark';
+      removeIcon.setAttribute('aria-hidden', 'true');
+      remove.appendChild(removeIcon);
+      remove.addEventListener('click', function () {
+        newWallTerms.splice(idx, 1);
+        renderNewWallTerms();
+      });
+      li.appendChild(remove);
+
+      el.wallNewTermList.appendChild(li);
+    });
+  }
+
+  function addNewWallTerm() {
+    var raw = (el.wallNewTermInput.value || '').trim();
+    if (!raw) {
+      showToast('監視する語を入力してください');
+      return;
+    }
+    var type = el.wallNewTermKeywordCheck.checked ? 'keyword' : 'hashtag';
+    var value = type === 'hashtag' ? raw.replace(/^[#＃]+/, '') : raw;
+    if (!value) {
+      showToast('監視する語を入力してください');
+      return;
+    }
+    if (type === 'keyword' && value.length < 2) {
+      showToast('キーワードは 2 文字以上で指定してください');
+      return;
+    }
+    var duplicated = newWallTerms.some(function (t) {
+      return t.type === type && t.value.toLowerCase() === value.toLowerCase();
+    });
+    if (duplicated) {
+      showToast('すでに追加されています');
+      return;
+    }
+    newWallTerms.push({ value: value, type: type });
+    renderNewWallTerms();
+    el.wallNewTermInput.value = '';
+    el.wallNewTermInput.focus();
+  }
+
+  el.wallNewTermAddBtn.addEventListener('click', addNewWallTerm);
+  el.wallNewTermInput.addEventListener('keydown', function (evt) {
+    if (evt.key === 'Enter') {
+      evt.preventDefault();
+      addNewWallTerm();
+    }
+  });
+
+  el.wallCreateBtn.addEventListener('click', function () {
+    var name = (el.wallNewNameInput.value || '').trim();
+    if (!name) {
+      showToast('ウォール名を入力してください');
+      return;
+    }
+    if (newWallTerms.length === 0) {
+      showToast('監視語を 1 つ以上追加してください');
+      return;
+    }
+    if (lastWalls.length >= MAX_WALLS) {
+      showToast('ウォールは ' + MAX_WALLS + ' 個までです');
+      return;
+    }
+    el.wallCreateBtn.disabled = true;
+    apiFetch('/api/admin/walls', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name,
+        terms: newWallTerms.map(function (t) { return { value: t.value, type: t.type }; }),
+      }),
+    })
+      .then(function (res) {
+        if (res.status === 401) {
+          handleUnauthorized();
+          throw new Error('unauthorized');
+        }
+        if (!res.ok) {
+          return res.json().catch(function () { return null; }).then(function (body) {
+            throw new Error((body && body.error) || 'request failed');
+          });
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        showToast('ウォール「' + data.wall.name + '」を作成しました');
+        el.wallNewNameInput.value = '';
+        newWallTerms = [];
+        renderNewWallTerms();
+        fetchState();
+      })
+      .catch(function (err) {
+        if (err && err.message === 'unauthorized') return;
+        showToast(err && err.message ? err.message : 'ウォールの作成に失敗しました');
+      })
+      .then(function () {
+        updateWallCreateAvailability(lastWalls.length);
+      });
+  });
 
   // <dialog> を使った確認。alert/confirm はページ全体を止めるため使わない。
   var confirmHandler = null;
@@ -666,7 +1169,7 @@ loginDivider: document.getElementById('login-divider'),
       approveBtn.className = 'btn btn-primary btn-small';
       approveBtn.innerHTML = '<i class="fa-solid fa-check fa-fw" aria-hidden="true"></i> 承認';
       approveBtn.addEventListener('click', function () {
-        callAdminApi('/api/admin/approve', { uri: post.uri })
+        callAdminApi('/api/admin/approve', { uri: post.uri, wall: currentWallId || undefined })
           .then(function () { fetchState(); })
           .catch(function () { showToast('承認に失敗しました'); });
       });
@@ -1037,7 +1540,8 @@ loginDivider: document.getElementById('login-divider'),
   });
 
   el.openWallBtn.addEventListener('click', function () {
-    window.open('/wall', '_blank', 'noopener');
+    var path = currentWallId ? '/wall/' + encodeURIComponent(currentWallId) : '/wall';
+    window.open(path, '_blank', 'noopener');
   });
 
   el.themeToggleBtn.addEventListener('click', toggleTheme);
@@ -1066,7 +1570,7 @@ loginDivider: document.getElementById('login-divider'),
     confirmLabel: '本当に？',
     className: 'btn btn-danger',
     onConfirm: function () {
-      callAdminApi('/api/admin/clear')
+      callAdminApi('/api/admin/clear', { wall: currentWallId || undefined })
         .then(function () { fetchState(); })
         .catch(function () { showToast('全消去に失敗しました'); });
     },
