@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230085ff'/%3E%3Cpath d='M16 7c-3 0-6 4-6 4v9a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-9s-3-4-6-4z' fill='white'/%3E%3C/svg%3E" />
 <title>Bluesky Live Wall - 管理画面</title>
 <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="/assets/admin/admin.css" />
@@ -39,15 +40,16 @@
       <div id="login-divider" class="login-divider" hidden><span>または</span></div>
 
       <!-- ADMIN_TOKEN によるログイン -->
-      <div id="token-login" class="login-method" hidden>
+      <form id="token-login" class="login-method" hidden autocomplete="on">
         <p class="login-desc">ADMIN_TOKEN を入力してください。未設定 (ローカル運用) の場合は空のまま接続できます。</p>
         <label for="token-input"><i class="fa-solid fa-key fa-fw" aria-hidden="true"></i> ADMIN_TOKEN</label>
-        <input type="password" id="token-input" autocomplete="off" placeholder="トークンを入力 (任意)" />
+        <input type="password" id="token-input" name="admin-token" autocomplete="current-password"
+               placeholder="トークンを入力 (任意)" />
         <div class="login-actions">
-          <button id="connect-btn" class="btn btn-primary btn-large"><i class="fa-solid fa-right-to-bracket fa-fw" aria-hidden="true"></i> 接続</button>
-          <button id="clear-token-btn" class="btn btn-ghost"><i class="fa-solid fa-eraser fa-fw" aria-hidden="true"></i> トークンを消去</button>
+          <button type="submit" id="connect-btn" class="btn btn-primary btn-large"><i class="fa-solid fa-right-to-bracket fa-fw" aria-hidden="true"></i> 接続</button>
+          <button type="button" id="clear-token-btn" class="btn btn-ghost"><i class="fa-solid fa-eraser fa-fw" aria-hidden="true"></i> トークンを消去</button>
         </div>
-      </div>
+      </form>
     </div>
   </section>
 

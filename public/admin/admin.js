@@ -64,6 +64,11 @@ confirmMessage: document.getElementById('confirm-message'),
 confirmOk: document.getElementById('confirm-ok'),
 jetstreamSelect: document.getElementById('jetstream-select'),
 jetstreamSwitchBtn: document.getElementById('jetstream-switch-btn'),
+backfillMinutes: document.getElementById('backfill-minutes'),
+backfillTarget: document.getElementById('backfill-target'),
+backfillRunBtn: document.getElementById('backfill-run-btn'),
+backfillStatus: document.getElementById('backfill-status'),
+backfillStatusText: document.getElementById('backfill-status-text'),
 modlistCount: document.getElementById('modlist-count'),
 modlistSubscribed: document.getElementById('modlist-subscribed'),
 modlistEmpty: document.getElementById('modlist-empty'),
@@ -120,6 +125,18 @@ loginDivider: document.getElementById('login-divider'),
     wallCreateBtn: document.getElementById('wall-create-btn'),
     wallLimitNote: document.getElementById('wall-limit-note'),
   };
+
+  // 参照できなかった要素を早期に洗い出す。
+  // 1 つでも undefined のままだと、そこで addEventListener が例外を投げて
+  // 以降の初期化がすべて止まり、画面が固まったように見えるため。
+  (function checkElements() {
+    var missing = Object.keys(el).filter(function (k) {
+      return !el[k];
+    });
+    if (missing.length > 0) {
+      console.error('[admin] 見つからない要素があります:', missing.join(', '));
+    }
+  })();
 
   // ---------- 状態 ----------
   var pollTimer = null;
@@ -1616,7 +1633,20 @@ loginDivider: document.getElementById('login-divider'),
     el.oauthBtn.click();
   });
 
-  el.connectBtn.addEventListener('click', function () {
+  // ログインはフォームの送信として扱う。
+  // ページ遷移させず、既存の接続処理へ渡す。
+  el.tokenLogin.addEventListener('submit', function (evt) {
+    evt.preventDefault();
+    submitTokenLogin();
+  });
+
+  el.connectBtn.addEventListener('click', function (evt) {
+    // type=submit なので submit ハンドラ側で処理する。
+    evt.preventDefault();
+    submitTokenLogin();
+  });
+
+  function submitTokenLogin() {
     var token = el.tokenInput.value || '';
     el.connectBtn.disabled = true;
 
@@ -1648,7 +1678,7 @@ loginDivider: document.getElementById('login-divider'),
       .then(function () {
         el.connectBtn.disabled = false;
       });
-  });
+  }
 
   bindEnter(el.tokenInput, function () {
     el.connectBtn.click();
