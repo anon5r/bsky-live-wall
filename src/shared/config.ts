@@ -7,6 +7,12 @@ export type AuthMode = 'token' | 'oauth' | 'both';
 /** 環境変数から組み立てるアプリケーション設定。既定値はすべてここで一元管理する。 */
 export interface AppConfig {
   event: {
+    /**
+     * イベント (テナント) の識別子。URL に `/e/<id>/` として現れる。
+     * 現状は 1 サーバー 1 イベントだが、将来のマルチテナント化で
+     * URL を変えずに済むよう、この段階から経路に組み込んでおく。
+     */
+    id: string;
     title: string;
     subtitle: string;
     hashtags: string[];
@@ -84,6 +90,42 @@ export interface AppConfig {
     publisherDid: string;
   };
 }
+
+/**
+ * URL に載せる識別子 (イベント ID / ウォール ID) を正規化する。
+ * 経路の一部になるため、扱える文字種を厳しく絞る。
+ */
+export function normalizeSlug(input: string): string {
+  return input
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+/**
+ * 経路として予約済みの識別子。
+ * ウォール ID やイベント ID がこれらと衝突すると URL が曖昧になる。
+ */
+export const RESERVED_SLUGS = new Set([
+  'api',
+  'admin',
+  'assets',
+  'e',
+  'wall',
+  'walls',
+  'xrpc',
+  'vendor',
+  'static',
+  'health',
+  'login',
+  'logout',
+  'auth',
+  'client-metadata',
+  'well-known',
+]);
 
 /** キーワード比較用の正規化。タグと違い先頭の # は落とさない。 */
 export function normalizeKeyword(word: string): string {
@@ -168,6 +210,7 @@ export function loadConfig(): AppConfig {
 
   cached = {
     event: {
+      id: normalizeSlug(str('EVENT_ID', 'default')) || 'default',
       title: str('EVENT_TITLE', 'Bluesky Live Wall'),
       subtitle: str('EVENT_SUBTITLE', ''),
       hashtags: hashtags.map((t) => t.replace(/^#+/, '')),

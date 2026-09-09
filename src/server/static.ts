@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createLogger } from '../shared/logger.js';
 
 const logger = createLogger('static');
@@ -41,43 +41,87 @@ export function resolvePublicDir(): string {
   return primary;
 }
 
-export async function registerStatic(app: FastifyInstance): Promise<void> {
+/**
+ * URL 空間の設計 (マルチテナント化を見据えた形)。
+ *
+ *   /assets/...                     静的ファイル (ここに閉じ込める)
+ *   /wall                           既定イベントの既定ウォール
+ *   /wall/<wallId>                  既定イベントの個別ウォール
+ *   /admin                          既定イベントの管理画面
+ *   /e/<eventId>/wall               明示指定のイベント
+ *   /e/<eventId>/wall/<wallId>
+ *   /e/<eventId>/admin
+ *
+ * 静的ファイルを `/assets/` に閉じ込めるのが要点。ルート直下に置くと
+ * `/wall/<wallId>` のような可変の経路と衝突し、ID の文字種で回避する
+ * といった無理が必要になる。
+ *
+ * イベント ID の階層は、現状 1 イベントしかなくても経路に組み込んでおく。
+ * 後から挿入すると既存の URL がすべて変わってしまうため。
+ */
+export async function registerStatic(app: FastifyInstance, eventId: string): Promise<void> {
   const publicDir = resolvePublicDir();
 
   await app.register(fastifyStatic, {
     root: publicDir,
-    prefix: '/',
+    prefix: '/assets/',
     decorateReply: true,
   });
 
-  app.get('/', async (_request, reply) => {
-    return reply.redirect('/wall');
+  const sendWall = async (_request: unknown, reply: FastifyReply): Promise<unknown> =>
+    reply.sendFile('wall/index.html');
+  const sendAdmin = async (_request: unknown, reply: FastifyReply): Promise<unknown> =>
+    reply.sendFile('admin/index.html');
+
+  app.get('/', async (_request, reply) => reply.redirect('/wall'));
+
+  // 既定イベントの短い経路 (会場で口頭・掲示で伝えやすい)。
+  app.get('/wall', sendWall);
+  app.get('/wall/', sendWall);
+  app.get('/wall/:wallId', sendWall);
+  app.get('/admin', sendAdmin);
+  app.get('/admin/', sendAdmin);
+
+  // イベントを明示する経路。将来テナントが増えてもこの形のまま使える。
+  // 存在しないイベントは 404 にする。画面を出してから API で失敗させるより、
+  // URL の誤りをその場で分かるようにする。
+  const requireEvent = async (
+    request: { params: { eventId?: string } },
+    reply: FastifyReply
+  ): Promise<boolean> => {
+    if (request.params.eventId === eventId) return true;
+    await reply.code(404).type('text/plain; charset=utf-8').send('event not found');
+    return false;
+  };
+
+  app.get<{ Params: { eventId: string } }>('/e/:eventId/wall', async (request, reply) => {
+    if (await requireEvent(request, reply)) return sendWall(request, reply);
+    return reply;
+  });
+  app.get<{ Params: { eventId: string } }>('/e/:eventId/wall/', async (request, reply) => {
+    if (await requireEvent(request, reply)) return sendWall(request, reply);
+    return reply;
+  });
+  app.get<{ Params: { eventId: string; wallId: string } }>(
+    '/e/:eventId/wall/:wallId',
+    async (request, reply) => {
+      if (await requireEvent(request, reply)) return sendWall(request, reply);
+      return reply;
+    }
+  );
+  app.get<{ Params: { eventId: string } }>('/e/:eventId/admin', async (request, reply) => {
+    if (await requireEvent(request, reply)) return sendAdmin(request, reply);
+    return reply;
+  });
+  app.get<{ Params: { eventId: string } }>('/e/:eventId/admin/', async (request, reply) => {
+    if (await requireEvent(request, reply)) return sendAdmin(request, reply);
+    return reply;
   });
 
-  app.get('/wall', async (_request, reply) => {
-    return reply.sendFile('wall/index.html');
-  });
-
-  app.get('/wall/', async (_request, reply) => {
-    return reply.sendFile('wall/index.html');
-  });
-
-  /**
-   * `/wall/<id>` で個別のウォールを開く。
-   * ウォール ID の解決はクライアント側が行うため、ここでは同じ HTML を返す。
-   * 静的ファイル (`/wall/wall.js` など) と衝突しないよう拡張子付きは除外する。
-   */
-  // パラメータを ID として使える文字種に限定する。
-  // 制限しないと /wall/wall.js のような静的アセットまでこのルートが奪う。
-  app.get('/wall/:id(^[a-z0-9][a-z0-9_-]*$)', async (_request, reply) => {
-    return reply.sendFile('wall/index.html');
-  });
-
-  app.get('/admin', async (_request, reply) => {
-    return reply.sendFile('admin/index.html');
-  });
-
-  app.get('/admin/', async (_request, reply) => {
-    return reply.sendFile('admin/index.html');
+  logger.info('URL を割り当てました', {
+    wall: '/wall',
+    wallExplicit: `/e/${eventId}/wall`,
+    admin: '/admin',
+    assets: '/assets/',
   });
 }

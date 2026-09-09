@@ -45,6 +45,7 @@ pnpm start
 | --- | --- |
 | `http://localhost:3000/wall` | **会場モニター用**。ブラウザで開いて F11 で全画面にする |
 | `http://localhost:3000/wall/<id>` | 2 つ目以降のウォール (下記参照) |
+| `http://localhost:3000/e/<EVENT_ID>/wall` | イベントを明示した経路 (下記参照) |
 | `http://localhost:3000/admin` | 運営用の管理画面 |
 | `http://localhost:3000/api/health` | ヘルスチェック |
 
@@ -144,6 +145,18 @@ Bluesky --(WebSocket: Jetstream v2)--> [ingest] タグ判定 -> モデレーシ�
 ```
 
 ウォールは管理画面から作成・改名・削除できます (最大 10 個)。
+
+URL は 2 通りあり、どちらでも同じ画面が開きます。
+
+```text
+/wall/<wallId>                短い経路 (会場で伝えやすい)
+/e/<EVENT_ID>/wall/<wallId>   イベントを明示した経路
+```
+
+イベントの階層は、将来 1 台のサーバーで複数イベントを扱えるようにするために
+今から用意してあるものです。現状は `.env` の `EVENT_ID` (既定 `default`) 1 つだけを
+受け付け、それ以外の ID は 404 になります。詳細は
+[docs/architecture.md](./docs/architecture.md) の「URL 空間」を参照してください。
 `.env` から作られる既定ウォール (`main`) は削除できません。
 
 | 区分 | 内容 |

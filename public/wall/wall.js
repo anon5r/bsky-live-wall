@@ -77,19 +77,37 @@
   };
 
   /**
-   * 表示するウォールを決める。
-   * `/wall/<id>` のパス、なければ `?wall=<id>` を見る。どちらも無ければ既定ウォール。
+   * 経路から表示対象を割り出す。
+   *   /wall                     既定イベントの既定ウォール
+   *   /wall/<wallId>            既定イベントの個別ウォール
+   *   /e/<eventId>/wall         イベントを明示
+   *   /e/<eventId>/wall/<wallId>
+   * クエリ (`?wall=`) も後方互換のために見る。
    */
-  function resolveWallId() {
-    const fromPath = location.pathname.replace(/^\/wall\/?/, '').replace(/\/$/, '');
-    if (fromPath) return decodeURIComponent(fromPath);
-    return params.get('wall') || '';
+  function resolveTarget() {
+    const path = location.pathname.replace(/\/+$/, '');
+    const scoped = path.match(/^\/e\/([^/]+)\/wall(?:\/([^/]+))?$/);
+    if (scoped) {
+      return {
+        eventId: decodeURIComponent(scoped[1]),
+        wallId: scoped[2] ? decodeURIComponent(scoped[2]) : params.get('wall') || '',
+      };
+    }
+    const plain = path.match(/^\/wall(?:\/([^/]+))?$/);
+    return {
+      eventId: '',
+      wallId: plain && plain[1] ? decodeURIComponent(plain[1]) : params.get('wall') || '',
+    };
   }
 
-  const wallId = resolveWallId();
+  const target = resolveTarget();
+  const wallId = target.wallId;
+
+  // イベントを明示して開かれた場合は、API も同じ階層を使う。
+  const apiBase = target.eventId ? '/e/' + encodeURIComponent(target.eventId) : '';
 
   function streamUrl() {
-    return '/api/stream' + (wallId ? '?wall=' + encodeURIComponent(wallId) : '');
+    return apiBase + '/api/stream' + (wallId ? '?wall=' + encodeURIComponent(wallId) : '');
   }
 
   function applyDisplayConfig(display) {

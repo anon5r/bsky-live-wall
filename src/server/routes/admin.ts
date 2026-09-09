@@ -24,6 +24,19 @@ import {
 
 const logger = createLogger('admin');
 
+/**
+ * 認証判定に使う経路を返す。
+ *
+ * これらのルートは `/api/...` と `/e/<eventId>/api/...` の両方に登録されるため、
+ * `request.url` の前方一致で判定すると、プレフィックス付きの経路が
+ * 認証ガードを素通りしてしまう。登録時のルートパターンを優先して使う。
+ */
+function routePath(request: FastifyRequest): string {
+  const pattern = request.routeOptions?.url;
+  if (typeof pattern === 'string' && pattern !== '') return pattern;
+  return request.url.split('?')[0] ?? '';
+}
+
 /** リモートアドレスが loopback (127.0.0.1 / ::1 / ::ffff:127.0.0.1) かどうか判定する。 */
 function isLoopback(ip: string): boolean {
   const normalized = ip.replace(/^::ffff:/, '');
@@ -165,8 +178,7 @@ export function registerAdminRoutes(
    * クエリを除いた完全一致で判定する。
    */
   const isLoginRoute = (request: FastifyRequest): boolean => {
-    const path = request.url.split('?')[0];
-    return path === '/api/admin/session' && request.method === 'POST';
+    return routePath(request).endsWith('/api/admin/session') && request.method === 'POST';
   };
 
   const adminAuth = (request: FastifyRequest, reply: FastifyReply): void => {
@@ -225,7 +237,7 @@ export function registerAdminRoutes(
   };
 
   app.addHook('preHandler', (request, reply, done) => {
-    if (!request.url.startsWith('/api/admin')) {
+    if (!routePath(request).includes('/api/admin')) {
       done();
       return;
     }

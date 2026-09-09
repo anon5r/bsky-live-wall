@@ -5,7 +5,7 @@
  * モデレーション (ブロック / 非表示 / リスト購読 / 一時停止) は
  * WallManager が全ウォール共通で持つ。
  */
-import type { AppConfig } from '../shared/config.js';
+import { RESERVED_SLUGS, normalizeSlug, type AppConfig } from '../shared/config.js';
 import type { DisplayConfig, WallPost, WallSummary, WatchTerm } from '../shared/types.js';
 import { PostStore } from './post-store.js';
 
@@ -47,15 +47,13 @@ export class Wall {
   }
 }
 
-/** ウォール ID として使える形に整える。URL に載るため文字種を絞る。 */
+/**
+ * ウォール ID として使える形に整える。URL に載るため文字種を絞る。
+ * 経路として予約されている語は使えない (`/wall/admin` のような曖昧な URL を防ぐ)。
+ */
 export function normalizeWallId(input: string): string {
-  return input
-    .normalize('NFKC')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
+  const slug = normalizeSlug(input);
+  return RESERVED_SLUGS.has(slug) ? '' : slug;
 }
 
 /** 既定ウォールの表示設定を config から作る。 */
