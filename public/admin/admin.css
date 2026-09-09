@@ -356,6 +356,12 @@ button {
   gap: 2px;
 }
 
+/* wa-badge は既定で幅いっぱいに広がる (block 相当) ため、
+ * 内容に合わせた大きさに戻す。 */
+#js-connected {
+  align-self: flex-start;
+}
+
 .status-label {
   font-size: 0.75rem;
   color: var(--color-text-muted);
@@ -366,27 +372,6 @@ button {
 .status-value {
   font-weight: 600;
   word-break: break-all;
-}
-
-.badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  width: fit-content;
-}
-
-.badge-ok {
-  background: rgba(22, 163, 74, 0.15);
-  color: var(--color-success);
-}
-.badge-error {
-  background: rgba(220, 38, 38, 0.15);
-  color: var(--color-danger);
-}
-.badge-unknown {
-  background: var(--color-surface-alt);
-  color: var(--color-text-muted);
 }
 
 .stats-grid {
@@ -431,58 +416,25 @@ button {
   font-weight: 600;
 }
 
-.toggle-btn {
+/* モニター配信スイッチ。wa-switch 自体の色は --wa-color-success 系を使うが、
+ * 「停止中は赤」という運用上重要な合図は wa-switch の既定色だけでは弱いため、
+ * checked=false のときだけ危険色に上書きする。 */
+.switch-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  min-height: 44px;
 }
 
-.toggle-track {
-  width: 52px;
-  height: 30px;
-  background: var(--color-success);
-  border-radius: 999px;
-  position: relative;
-  transition: background-color 0.15s ease;
+#pause-toggle {
+  --thumb-size: 22px;
 }
 
-/* 配信が有効なとき ON (緑)。既定はこちら。 */
-.toggle-btn[aria-checked="true"] .toggle-track {
-  background: var(--color-success, #16a34a);
+#pause-toggle::part(control) {
+  background-color: var(--color-success);
 }
 
-/* 停止中は OFF (赤)。止まっていることが一目で分かるようにする。 */
-.toggle-btn[aria-checked="false"] .toggle-track {
-  background: var(--color-danger);
-}
-
-.toggle-btn[aria-checked="true"] .toggle-thumb {
-  transform: translateX(20px);
-}
-
-.toggle-btn[aria-pressed="true"] .toggle-track {
-  background: var(--color-danger);
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 24px;
-  height: 24px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform 0.15s ease;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-
-.toggle-btn[aria-pressed="true"] .toggle-thumb {
-  transform: translateX(22px);
+#pause-toggle:not([checked])::part(control) {
+  background-color: var(--color-danger);
 }
 
 .toggle-text {
@@ -750,23 +702,8 @@ button {
 
 /* ---------- 監視対象のチップ ---------- */
 
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.checkbox-row input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
+/* 監視語チップは wa-tag (with-remove) を使う。ハッシュタグとキーワードは
+ * variant で区別する (JS 側で brand / warning を割り当てる)。 */
 .term-list {
   list-style: none;
   margin: 12px 0 0;
@@ -774,61 +711,6 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.term-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 6px 5px 11px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.5;
-  max-width: 100%;
-}
-
-/* ハッシュタグ: 投稿者が明示的に付けたもの。中立の強調色。 */
-.term-chip-hashtag {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
-  color: var(--color-primary);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
-}
-
-/* キーワード: 第三者の投稿も拾うため、色を分けて区別できるようにする。 */
-.term-chip-keyword {
-  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
-  color: var(--color-warning);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
-}
-
-.term-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.term-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  opacity: 0.7;
-  transition: opacity 0.15s ease, background 0.15s ease;
-}
-
-.term-remove:hover,
-.term-remove:focus-visible {
-  opacity: 1;
-  background: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 .inline-warning {
@@ -845,204 +727,51 @@ button {
   line-height: 1.6;
 }
 
-/* ---------- ウォール切り替え ---------- */
-
-.wall-switcher {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 20px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  position: sticky;
-  top: 0;
-  z-index: 90;
-  /* スクロールはタブ列 (.wall-tabs) 側だけに持たせる。
-     ここにも付けると入れ子のスクロール領域になり、アイコンごと流れてしまう。 */
-  min-width: 0;
-}
-
-.wall-switcher-icon {
-  color: var(--color-text-muted);
-  flex: 0 0 auto;
-}
-
-/*
- * ウォールのタブ。数が増えて画面幅を超えても、タブ列だけが
- * 横スクロールするようにする。折り返すとヘッダの高さが変わり、
- * 下のパネルが上下にずれて操作しづらくなるため。
- */
-.wall-tabs {
-  display: flex;
-  gap: 8px;
-  flex-wrap: nowrap;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /* iOS で慣性スクロールを効かせつつ、縦スクロールへ伝播させない */
-  overscroll-behavior-x: contain;
-  scroll-behavior: smooth;
-  scrollbar-width: thin;
-  /* スクロールバーの分だけ下に余白を取り、タブが隠れないようにする */
-  padding-bottom: 4px;
-  scroll-padding-inline: 12px;
-}
-
-.wall-tabs::-webkit-scrollbar {
-  height: 6px;
-}
-
-.wall-tabs::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.wall-tabs::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 999px;
-}
-
-.wall-tabs::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wall-tabs {
-    scroll-behavior: auto;
-  }
-}
-
-.wall-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  /* 横スクロール時に潰れないよう、タブは縮小させない */
-  flex: 0 0 auto;
-  white-space: nowrap;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-alt);
-  color: var(--color-text);
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.wall-tab:hover {
-  border-color: var(--color-primary);
-}
-
-.wall-tab[aria-selected="true"] {
-  background: var(--color-primary);
-  color: #fff;
-  border-color: var(--color-primary);
-}
-
-.wall-tab-count {
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 0.75rem;
-}
-
-.wall-tab[aria-selected="false"] .wall-tab-count {
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-}
-
-/* 承認待ちが 1 件以上あるウォールは見落とし防止のため目立たせる。 */
-.wall-tab-pending {
-  background: var(--color-warning) !important;
-  color: #1c1f26 !important;
-}
-
-/* ---------- ウォール管理パネル ---------- */
+/* ---------- ウォールのタブ ---------- */
 
 .panel-full {
   grid-column: 1 / -1;
 }
 
-.wall-manage-list {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* wa-tab-group は横スクロールを内蔵しているため、タブが画面幅を
+ * 超える対応をこちら側で書く必要はない。承認待ちのあるタブだけ、
+ * 見落とし防止のため警告色のバッジを添える (JS 側で付与)。 */
+.panel-walltabs wa-tab-group {
+  --indicator-color: var(--color-primary, #2563eb);
 }
 
-.wall-manage-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface-alt);
+.panel-walltabs wa-tab-panel::part(base) {
+  padding-top: 16px;
 }
 
-.wall-manage-item.is-current {
-  border-color: var(--color-primary);
+/* タブ内の各パネルに置くパネル同士の間隔。 */
+#wall-content .panel + .panel {
+  margin-top: 16px;
 }
 
-.wall-manage-main {
-  flex: 1 1 220px;
-  min-width: 0;
-}
-
-.wall-manage-name {
-  font-weight: 700;
+.wall-rename-slot {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+}
+
+.wall-rename-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wall-rename-form wa-input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .wall-manage-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   color: var(--color-text-muted);
-}
-
-.wall-manage-terms {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  word-break: break-word;
-}
-
-.wall-manage-counts {
-  display: flex;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.wall-manage-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 0 0 auto;
-}
-
-.wall-manage-rename-form {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex: 1 1 220px;
-}
-
-.wall-manage-rename-form input[type="text"] {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: inherit;
-  font: inherit;
 }
 
 .wall-default-badge {
@@ -1092,46 +821,15 @@ button {
   color: var(--color-text-muted);
 }
 
-/* ---------- 確認ダイアログ ---------- */
-
-.confirm-dialog {
-  max-width: 460px;
-  width: calc(100% - 32px);
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.confirm-dialog form {
-  padding: 22px;
-}
-
-.confirm-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 1.05rem;
-  color: var(--color-warning);
-}
+/* ---------- 確認ダイアログ ----------
+ * wa-dialog 自体の見た目 (背景・枠・アニメーション) はコンポーネント任せにし、
+ * ここではメッセージ文言の体裁だけ整える。 */
 
 .confirm-message {
-  margin: 0 0 20px;
+  margin: 0;
   font-size: 14px;
   line-height: 1.7;
   word-break: break-word;
-}
-
-.confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* 操作行の補足文。ラベルの下に回して読みやすくする。 */

@@ -340,15 +340,40 @@ OAuth は本人確認までを担い、管理してよいかは `ADMIN_ACTORS` �
 誰でも管理 API を操作できてしまいます (このため `TRUST_PROXY=true` かつ
 `ADMIN_TOKEN` 未設定では起動を拒否します)。
 
-## アイコン
+## UI の依存関係
 
-管理画面のアイコンには Font Awesome Free を使います。**CDN は参照しません。**
-会場のネットワークが不安定でも確実に表示させるため、`pnpm build` / `pnpm dev` 実行時に
-`node_modules` から `public/vendor/fontawesome/` へ複製して自前で配信します
-(`scripts/vendor-assets.mjs`)。
+| 画面 | 依存 |
+| --- | --- |
+| 会場モニター (`/wall`) | **依存ゼロ**。素の HTML / CSS / JavaScript のみ |
+| 管理画面 (`/admin`) | Web Awesome (MIT) + Font Awesome Free |
+
+会場モニターを依存ゼロに保っているのは、イベント当日の障害要因を増やさないためです。
+管理画面は運営端末で使うもので、タブ・スイッチ・ダイアログ・フォーム部品を
+自前で保守し続けるコストのほうが大きいため、コンポーネント集を使っています。
+
+**どちらも CDN は参照しません。** `pnpm build` / `pnpm dev` 実行時に
+`node_modules` から `public/vendor/` へ複製し、自前で配信します
+(`scripts/vendor-assets.mjs`)。会場のネットワークが不安定でも表示が崩れません。
+
+| 複製されるもの | サイズ |
+| --- | --- |
+| `public/vendor/fontawesome/` | 約 0.4MB |
+| `public/vendor/webawesome/` | 約 3.4MB (styles / chunks / components のみ) |
+| `public/vendor/lit/` | 約 1.6MB (Web Awesome の実行時依存。`.map` / `.d.ts` は除く) |
+
+Web Awesome のコンポーネントは `import ... from "lit"` のような裸のパッケージ指定子を
+使います。ブラウザはこれを解決できないため、実体をローカルへ複製したうえで、
+管理画面の HTML に **importmap** を置いて対応づけています。
 
 `public/vendor/` は生成物のため git 管理外です。`pnpm install` 後に
 `pnpm build`、`pnpm dev`、`pnpm vendor` のいずれかを実行すると作られます。
+
+## アイコン
+
+アイコンには Font Awesome Free を使います。**CDN は参照しません。**
+会場のネットワークが不安定でも確実に表示させるため、Web Awesome のコンポーネント内でも `<wa-icon>` ではなく
+`<i class="fa-solid ...">` を使います。アイコンの取得元設定を持ち込まずに済み、
+オフライン動作の保証が崩れないためです。
 
 ## テスト
 
