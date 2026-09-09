@@ -425,11 +425,13 @@ loginDivider: document.getElementById('login-divider'),
     isPaused = !!state.paused;
     updatePauseUI();
 
-    // 承認待ちパネルの表示切替 (approve モードのみ)
-    var showPending = state.moderationMode === 'approve';
-    el.pendingPanel.hidden = !showPending;
+    // 承認待ちパネルの表示切替。
+    // approve モードでなくても、キーワードのみ一致した投稿は承認待ちに入る。
+    // 件数があるのにパネルが隠れていると、確認も承認もできなくなる。
+    var pendingItems = data.pending || [];
+    el.pendingPanel.hidden = state.moderationMode !== 'approve' && pendingItems.length === 0;
 
-    renderPendingList(data.pending || []);
+    renderPendingList(pendingItems);
     renderRecentList(data.recent || []);
     renderHiddenList(data.hidden || []);
     renderBlockedList(data.blocked || []);
@@ -469,7 +471,9 @@ loginDivider: document.getElementById('login-divider'),
     el.pendingList.innerHTML = '';
     el.pendingEmpty.hidden = posts.length > 0;
     posts.forEach(function (post) {
-      el.pendingList.appendChild(buildPostItem(post, { approve: true, hide: true, block: true }));
+      el.pendingList.appendChild(
+        buildPostItem(post, { approve: true, hide: true, block: true, rejectLabel: true })
+      );
     });
   }
 
@@ -549,7 +553,8 @@ loginDivider: document.getElementById('login-divider'),
       el.keywordWarningText.textContent =
         'キーワード ' + keywordCount + ' 件が有効です。' +
         'ハッシュタグの付かない投稿は、イベントを知らない第三者のものである可能性があります。' +
-        '既定ではキーワードのみ一致した投稿は承認待ちに入ります。';
+        '既定ではキーワードのみ一致した投稿は下の「承認待ち」に入り、' +
+        '承認するまで会場モニターには出ません。';
     }
   }
 
@@ -1217,7 +1222,10 @@ loginDivider: document.getElementById('login-divider'),
     if (actions.hide) {
       var hideBtn = document.createElement('button');
       hideBtn.className = 'btn btn-neutral btn-small';
-      hideBtn.innerHTML = '<i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示';
+      // 承認待ちの投稿はまだ表示されていないため「非表示」では意味が通らない。
+      hideBtn.innerHTML = actions.rejectLabel
+        ? '<i class="fa-solid fa-circle-xmark fa-fw" aria-hidden="true"></i> 却下'
+        : '<i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示';
       hideBtn.addEventListener('click', function () {
         callAdminApi('/api/admin/hide', { uri: post.uri })
           .then(function () { fetchState(); })
