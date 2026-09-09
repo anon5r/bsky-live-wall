@@ -14,6 +14,19 @@
 
 ## API 契約 (T2 / T3 / T4 が共有する取り決め)
 
+### ウォールの指定
+
+`/api/stream`、`/api/posts`、`/api/state` および一部の管理 API は `wall` で対象を選ぶ。
+省略時は既定ウォール (`main`)。存在しない ID を指定すると 404。
+
+| メソッド | パス | body / query | 説明 |
+| --- | --- | --- | --- |
+| GET | `/api/walls` | - | 公開されているウォールの一覧 (認証不要) |
+| GET | `/api/admin/walls` | - | ウォールの詳細一覧 |
+| POST | `/api/admin/walls` | `{ name, terms, id? }` | 作成 (最大 10 個) |
+| PATCH | `/api/admin/walls/:id` | `{ name?, display? }` | 更新 |
+| DELETE | `/api/admin/walls/:id` | - | 削除 (既定ウォールは不可) |
+
 ### `GET /api/stream` (SSE)
 
 | event | data | 説明 |
