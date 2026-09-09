@@ -1,11 +1,21 @@
 import 'dotenv/config';
 import type { ModerationMode, WatchTerm, WatchTermType } from './types.js';
+import type { TenancyMode } from './tenancy.js';
 
 /** 管理画面の認証方式。 */
 export type AuthMode = 'token' | 'oauth' | 'both';
 
 /** 環境変数から組み立てるアプリケーション設定。既定値はすべてここで一元管理する。 */
 export interface AppConfig {
+  tenancy: {
+    /**
+     * single: 会場ローカルなど 1 イベント専用。設定は .env、URL は短い形。
+     * multi : 共有サービス。テナントを永続化し、URL に /e/<tenant>/ が入る。
+     */
+    mode: TenancyMode;
+    /** テナント設定の保存先 (multi のときのみ使う)。 */
+    dataFile: string;
+  };
   event: {
     /**
      * イベント (テナント) の識別子。URL に `/e/<id>/` として現れる。
@@ -209,6 +219,10 @@ export function loadConfig(): AppConfig {
   const mode = str('MODERATION_MODE', 'open') === 'approve' ? 'approve' : 'open';
 
   cached = {
+    tenancy: {
+      mode: bool('MULTI_TENANT', false) ? 'multi' : 'single',
+      dataFile: str('DATA_FILE', './data/wall.db'),
+    },
     event: {
       id: normalizeSlug(str('EVENT_ID', 'default')) || 'default',
       title: str('EVENT_TITLE', 'Bluesky Live Wall'),

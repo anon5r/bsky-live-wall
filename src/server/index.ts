@@ -79,7 +79,7 @@ export async function createServer(config: AppConfig, source: WallSource): Promi
     });
   }
 
-  await registerStatic(app, config.event.id);
+  await registerStatic(app, config.event.id, config.tenancy.mode);
 
   app.addHook('onClose', (_instance, done) => {
     hubs.closeAll();

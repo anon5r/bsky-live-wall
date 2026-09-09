@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createLogger } from '../shared/logger.js';
+import type { TenancyMode } from '../shared/tenancy.js';
 
 const logger = createLogger('static');
 
@@ -59,7 +60,11 @@ export function resolvePublicDir(): string {
  * イベント ID の階層は、現状 1 イベントしかなくても経路に組み込んでおく。
  * 後から挿入すると既存の URL がすべて変わってしまうため。
  */
-export async function registerStatic(app: FastifyInstance, eventId: string): Promise<void> {
+export async function registerStatic(
+  app: FastifyInstance,
+  eventId: string,
+  mode: TenancyMode
+): Promise<void> {
   const publicDir = resolvePublicDir();
 
   await app.register(fastifyStatic, {
@@ -73,14 +78,26 @@ export async function registerStatic(app: FastifyInstance, eventId: string): Pro
   const sendAdmin = async (_request: unknown, reply: FastifyReply): Promise<unknown> =>
     reply.sendFile('admin/index.html');
 
-  app.get('/', async (_request, reply) => reply.redirect('/wall'));
-
-  // 既定イベントの短い経路 (会場で口頭・掲示で伝えやすい)。
-  app.get('/wall', sendWall);
-  app.get('/wall/', sendWall);
-  app.get('/wall/:wallId', sendWall);
+  // 管理画面はどちらのモードでも同じ入口に置く。
+  // multi では「ログイン後にテナントを選ぶ」画面として働く。
   app.get('/admin', sendAdmin);
   app.get('/admin/', sendAdmin);
+
+  if (mode === 'single') {
+    // 会場ローカル運用。URL は短いほうがよい (口頭や掲示で伝えるため)。
+    app.get('/', async (_request, reply) => reply.redirect('/wall'));
+    app.get('/wall', sendWall);
+    app.get('/wall/', sendWall);
+    app.get('/wall/:wallId', sendWall);
+  } else {
+    // 共有サービス。どのテナントかを省略できないため、
+    // テナントなしの経路は管理画面へ誘導する。
+    const toAdmin = async (_request: unknown, reply: FastifyReply) => reply.redirect('/admin');
+    app.get('/', toAdmin);
+    app.get('/wall', toAdmin);
+    app.get('/wall/', toAdmin);
+    app.get('/wall/:wallId', toAdmin);
+  }
 
   // イベントを明示する経路。将来テナントが増えてもこの形のまま使える。
   // 存在しないイベントは 404 にする。画面を出してから API で失敗させるより、
@@ -119,7 +136,8 @@ export async function registerStatic(app: FastifyInstance, eventId: string): Pro
   });
 
   logger.info('URL を割り当てました', {
-    wall: '/wall',
+    mode,
+    wall: mode === 'single' ? '/wall' : `/e/<tenant>/wall`,
     wallExplicit: `/e/${eventId}/wall`,
     admin: '/admin',
     assets: '/assets/',

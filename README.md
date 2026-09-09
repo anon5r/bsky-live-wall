@@ -9,7 +9,7 @@ Bluesky の特定ハッシュタグ付き投稿を **Jetstream v2** からリア
 
 ## 必要環境
 
-- Node.js 20 以上 (開発は 24 で確認)
+- **Node.js 24 以上** (テナント設定の永続化に標準の `node:sqlite` を使うため)
 - pnpm (npm / yarn でも可)
 - 会場 PC からインターネットへの WebSocket 接続 (`wss://jetstream*.bsky.network`)
 
@@ -132,6 +132,25 @@ Bluesky --(WebSocket: Jetstream v2)--> [ingest] タグ判定 -> モデレーシ�
 | [docs/deployment.md](./docs/deployment.md) | コンテナ / LXC でのデプロイとリモート公開 |
 | [docs/task-breakdown.md](./docs/task-breakdown.md) | 作業分割と API 契約 |
 | [docs/roadmap.md](./docs/roadmap.md) | マルチテナント化計画のレビューと今後の実装計画 |
+
+## 運用モード
+
+用途が異なる 2 つの動作形態があります。`.env` の `MULTI_TENANT` で切り替えます。
+
+| | 単一テナント (既定) | マルチテナント |
+| --- | --- | --- |
+| 用途 | 会場 PC での 1 イベント運用 | 共有サービス |
+| `MULTI_TENANT` | `false` | `true` |
+| 設定の出どころ | `.env` | `.env` + `DATA_FILE` に永続化 |
+| 認証 | トークン / OAuth どちらも可 | **OAuth 必須** |
+| 会場モニター | `/wall`, `/wall/<wallId>` | `/e/<tenant>/wall/<wallId>` |
+| 管理画面 | `/admin` | `/admin` (ログイン後にテナントを選択)<br>`/e/<tenant>/admin` (直リンク) |
+
+単一テナントでは `/e/<EVENT_ID>/...` の形も使えます (別名)。
+マルチテナントではテナントを省略できないため、`/wall` は `/admin` へ転送されます。
+
+**マルチテナントモードは実装途中です。** 永続化層まで実装済みで、テナントごとの
+ウォール管理は未対応です。起動時に警告が出ます。
 
 ## 複数モニター (マルチウォール)
 

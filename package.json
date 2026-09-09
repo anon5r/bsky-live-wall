@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Bluesky のハッシュタグ投稿をイベント会場モニターへリアルタイム表示するライブウォール",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "packageManager": "pnpm@10.31.0",
   "scripts": {

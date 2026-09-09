@@ -54,6 +54,23 @@ async function main(): Promise<void> {
     );
   }
 
+  // 共有サービスとして動かす場合の必須条件を検証する。
+  if (config.tenancy.mode === 'multi') {
+    if (config.admin.authMode !== 'oauth') {
+      log.error(
+        'MULTI_TENANT=true では AUTH_MODE=oauth が必須です。' +
+          '共有トークン 1 個を全テナントで使う構成は成立しません ' +
+          '(誰がどのテナントの管理者かを区別できないため)。'
+      );
+      process.exit(1);
+    }
+    log.warn(
+      'マルチテナントモードは実装途中です。' +
+        'テナントの永続化層まで実装済みで、テナントごとのウォール管理は未対応です。' +
+        '本番運用にはまだ使わないでください。'
+    );
+  }
+
   // OAuth を使う場合の必須設定を起動時に検証する。
   if (config.admin.authMode === 'oauth' || config.admin.authMode === 'both') {
     if (config.oauth.publicUrl === '') {

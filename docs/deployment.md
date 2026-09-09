@@ -336,9 +336,9 @@ journalctl -u bsky-live-wall -f
 
 ## 6. 運用
 
-### 状態は永続化されない
+### 状態の永続化
 
-投稿・統計・ブロック・非表示はすべてメモリ上にあります。
+単一テナント運用では、投稿・統計・ブロック・非表示はすべてメモリ上にあります。
 **再起動するとすべて失われます。** バックアップ対象はありません。
 
 イベント中に再起動が必要になった場合、`STARTUP_BACKFILL_MINUTES` の分だけ
@@ -355,6 +355,25 @@ journalctl -u bsky-live-wall -f
 | systemd | `journalctl -u bsky-live-wall -f` |
 
 compose 構成ではログを 10MB × 3 世代でローテーションしています。
+
+### マルチテナント運用時のバックアップ
+
+`MULTI_TENANT=true` では `DATA_FILE` (既定 `./data/wall.db`) にテナント設定が
+保存されます。**これが唯一のバックアップ対象です。**
+
+コンテナで動かす場合、このパスをボリュームにしてください。`compose.yaml` の
+`read_only: true` とも競合するため、`data` を書き込み可能なボリュームとして
+明示的に割り当てる必要があります。
+
+```yaml
+    volumes:
+      - wall_data:/app/data
+    environment:
+      DATA_FILE: /app/data/wall.db
+```
+
+SQLite は WAL モードで動くため、`wall.db` に加えて `wall.db-wal` と `wall.db-shm` が
+できます。バックアップはプロセス停止中に 3 つまとめて取るのが確実です。
 
 ### 監視
 
@@ -375,3 +394,42 @@ compose 構成ではログを 10MB × 3 世代でローテーションしてい�
 | `jetstream.connected` が `false` のまま | 送信方向の WebSocket が遮断されている | ファイアウォールで 443 の WebSocket を許可する |
 | ページは開くが画像だけ出ない | 視聴者側から `cdn.bsky.app` へ到達できない | `SHOW_IMAGES=false` にする |
 | コンテナが `unhealthy` | アプリが応答していない | `docker logs` を確認する |
+
+---
+
+## 8. ホスティング先の検討
+
+### Cloudflare Workers / Durable Objects — 推奨しない
+
+永続接続そのものは可能ですが、次の理由で本システムには合いません
+(いずれも Cloudflare の公式ドキュメントで確認)。
+
+- Durable Object の**外向き WebSocket が退避を防ぐのは 1 接続あたり最大 15 分**。
+  以後は通常の退避規則 (70〜140 秒の無通信で退避) に戻る
+- **外向き WebSocket はハイバネーションできない** (受信側 WebSocket 専用の機能)
+- 生かし続けるにはアラーム等で常時イベントを起こす必要があり、その間ずっと duration 課金が発生する
+- `ws` / `node:sqlite` / Fastify / `@fastify/static` をすべて Workers の API へ書き直す必要がある
+
+### Cloudflare Containers — 可能だが制約を理解して使うこと
+
+現在の Docker イメージがほぼそのまま動きます。ただし:
+
+- **インスタンスの稼働時間は保証されない。** 公式ドキュメントに
+  「Cloudflare does not guarantee that any container instance will run for any set period of time」
+  と明記されており、ホスト再起動が不定期に発生する
+- 停止時は SIGTERM → 最大 15 分待機 → SIGKILL
+- **コンテナのローカルディスクは永続ではない。** `DATA_FILE` に SQLite を置く構成は
+  そのままでは成立せず、Durable Objects の SQLite ストレージか D1 への差し替えが必要
+  (`TenantStore` インターフェースの別実装として追加できる形にしてある)
+
+再起動でメモリ上の状態 (ブロック・非表示・表示中の投稿) が失われる点が、
+イベント中の運用では効きます。投稿はバックフィルで戻りますが、荒らし対策は戻りません。
+
+### 推奨: 常時稼働の VM + Cloudflare Tunnel
+
+ライブイベント中に落ちてはいけない性質上、常時稼働のサーバー
+(VPS / Fly.io / Railway / 自前の LXC など) が素直です。
+
+Cloudflare は前段の TLS・DNS・DDoS 対策として使い、**Cloudflare Tunnel** で
+ポートを開けずに公開する構成が本システムによく合います。会場や自宅のサーバーを
+そのまま出せます。
