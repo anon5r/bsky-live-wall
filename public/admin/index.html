@@ -13,7 +13,7 @@
 
   <!-- 一時停止中に表示する警告バー -->
   <div id="pause-banner" class="pause-banner" hidden>
-    一時停止中 (全ウォール共通) - すべての会場モニターへの新規表示は止まっています
+    モニターへの配信を停止中 (全ウォール共通) - 受信は続いていますが、会場モニターには新規表示されません
   </div>
 
   <!-- トークン入力画面 -->
@@ -154,12 +154,13 @@
       <section class="panel panel-controls">
         <h2 class="panel-title"><i class="fa-solid fa-sliders fa-fw" aria-hidden="true"></i> 操作</h2>
         <div class="control-row">
-          <span class="control-label"><i class="fa-solid fa-circle-pause fa-fw" aria-hidden="true"></i> ウォールの一時停止
+          <span class="control-label"><i class="fa-solid fa-tv fa-fw" aria-hidden="true"></i> モニターへの配信
             <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
+            <span class="control-note">投稿の受信は止まりません。会場モニターへの表示だけを止めます。</span>
           </span>
-          <button id="pause-toggle" class="toggle-btn" aria-pressed="false">
+          <button id="pause-toggle" class="toggle-btn" role="switch" aria-checked="true">
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span id="pause-toggle-label" class="toggle-text">稼働中</span>
+            <span id="pause-toggle-label" class="toggle-text">有効</span>
           </button>
         </div>
         <div class="control-row">

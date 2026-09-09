@@ -456,8 +456,11 @@ loginDivider: document.getElementById('login-divider'),
   }
 
   function updatePauseUI() {
-    el.pauseToggle.setAttribute('aria-pressed', isPaused ? 'true' : 'false');
-    el.pauseToggleLabel.textContent = isPaused ? '停止中' : '稼働中';
+    // スイッチは「配信が有効か」を表す。停止が ON に見えると直感に反するため、
+    // 稼働中を ON (緑)、停止中を OFF (赤) とする。
+    el.pauseToggle.setAttribute('aria-checked', isPaused ? 'false' : 'true');
+    el.pauseToggle.classList.toggle('toggle-off', isPaused);
+    el.pauseToggleLabel.textContent = isPaused ? '停止中' : '有効';
     el.pauseBanner.hidden = !isPaused;
   }
 

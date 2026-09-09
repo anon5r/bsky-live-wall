@@ -451,6 +451,20 @@ button {
   transition: background-color 0.15s ease;
 }
 
+/* 配信が有効なとき ON (緑)。既定はこちら。 */
+.toggle-btn[aria-checked="true"] .toggle-track {
+  background: var(--color-success, #16a34a);
+}
+
+/* 停止中は OFF (赤)。止まっていることが一目で分かるようにする。 */
+.toggle-btn[aria-checked="false"] .toggle-track {
+  background: var(--color-danger);
+}
+
+.toggle-btn[aria-checked="true"] .toggle-thumb {
+  transform: translateX(20px);
+}
+
 .toggle-btn[aria-pressed="true"] .toggle-track {
   background: var(--color-danger);
 }
@@ -1118,4 +1132,11 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 操作行の補足文。ラベルの下に回して読みやすくする。 */
+.control-label .control-note {
+  display: block;
+  margin: 4px 0 0;
+  font-weight: 400;
 }
