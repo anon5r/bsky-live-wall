@@ -9,12 +9,12 @@
   },
   "packageManager": "pnpm@10.31.0",
   "scripts": {
-    "dev": "node scripts/vendor-assets.mjs && tsx watch src/index.ts",
-    "build": "node scripts/vendor-assets.mjs && tsc -p tsconfig.json",
+    "dev": "vite build && tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json && vite build",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm build && node --test \"test/*.test.js\"",
-    "vendor": "node scripts/vendor-assets.mjs"
+    "dev:admin": "vite build --watch"
   },
   "dependencies": {
     "@atproto/api": "^0.13.35",
@@ -27,10 +27,13 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.5.13",
+    "svelte": "^5.57.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vite": "^8.2.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

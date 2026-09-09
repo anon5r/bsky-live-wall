@@ -5,4 +5,5 @@ dist/
 *.log
 .DS_Store
 data/
-public/vendor/
+# 管理画面は src/admin から Vite でビルドする生成物
+public/admin/

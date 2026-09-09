@@ -7,11 +7,11 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 
-COPY tsconfig.json ./
+COPY tsconfig.json vite.config.js svelte.config.js ./
 COPY src ./src
-COPY scripts ./scripts
 COPY public ./public
-# ビルド時に Font Awesome を public/vendor/ へ取り込む (CDN を参照しないため)。
+# サーバー (tsc) と管理画面 (Vite) をまとめてビルドする。
+# 管理画面の依存はバンドルへ含めるため、CDN も importmap も使わない。
 RUN pnpm build
 
 # 実行に不要な devDependencies を落とす。
