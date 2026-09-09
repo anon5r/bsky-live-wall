@@ -196,7 +196,7 @@
           </label>
           <p class="field-note">
             既定はハッシュタグです。チェックを入れると本文中の任意の文字列に一致します。
-            合計 20 件まで。
+            合計 20 件まで。<strong>この設定は選択中のウォールにのみ適用されます。</strong>
           </p>
           <div id="keyword-warning" class="inline-warning" hidden>
             <i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>
@@ -205,17 +205,24 @@
           <ul id="term-list" class="term-list"></ul>
           <p id="term-empty" class="empty-msg">監視対象がありません。</p>
         </div>
+      </section>
+
+      <!-- 受信設定 (全ウォール共通) -->
+      <section class="panel panel-ingest">
+        <h2 class="panel-title"><i class="fa-solid fa-tower-broadcast fa-fw" aria-hidden="true"></i> 受信設定
+          <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
+        </h2>
 
         <div class="field">
-          <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先
-            <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
-          </label>
+          <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
           <div class="field-row">
             <select id="jetstream-select"></select>
             <button id="jetstream-switch-btn" class="btn btn-neutral"><i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え</button>
           </div>
           <p class="field-note">
-            切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
+            投稿の受信元です。すべてのウォールが 1 本の接続を共有しているため、
+            切り替えると全画面に影響します。切り替え中の取りこぼしは、
+            直近のカーソルから再生して補填されます。
           </p>
         </div>
       </section>

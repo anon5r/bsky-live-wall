@@ -583,6 +583,7 @@ loginDivider: document.getElementById('login-divider'),
   function renderWallTabs(walls, activeId) {
     el.wallSwitcher.hidden = walls.length <= 1;
     el.wallTabs.replaceChildren();
+    var activeTab = null;
 
     walls.forEach(function (w) {
       var tab = document.createElement('button');
@@ -604,8 +605,36 @@ loginDivider: document.getElementById('login-divider'),
 
       tab.addEventListener('click', function () { switchWall(w.id); });
       el.wallTabs.appendChild(tab);
+
+      if (w.id === activeId) activeTab = tab;
     });
+
+    // タブが画面幅を超えている場合、選択中のタブが隠れないように寄せる。
+    // ポーリングのたびに毎回動かすと目障りなので、実際に見えていないときだけ。
+    if (activeTab && isTabOutOfView(activeTab)) {
+      activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
   }
+
+  /** タブがスクロール領域からはみ出しているか。 */
+  function isTabOutOfView(tab) {
+    var box = el.wallTabs.getBoundingClientRect();
+    var t = tab.getBoundingClientRect();
+    return t.left < box.left || t.right > box.right;
+  }
+
+  // タブ列はホイールの縦回転でも横へ送れるようにする。
+  // トラックパッドのない環境で、はみ出したタブへ到達できなくなるのを防ぐ。
+  el.wallTabs.addEventListener(
+    'wheel',
+    function (evt) {
+      if (evt.deltaX !== 0) return;
+      if (el.wallTabs.scrollWidth <= el.wallTabs.clientWidth) return;
+      evt.preventDefault();
+      el.wallTabs.scrollLeft += evt.deltaY;
+    },
+    { passive: false }
+  );
 
   // 選択中のウォールを切り替える。ウォール単位の API 呼び出しはすべて
   // currentWallId を参照するので、切り替えるだけで反映される。
@@ -793,6 +822,11 @@ loginDivider: document.getElementById('login-divider'),
       submitRenameWall(wall, input.value);
     });
 
+    // 変換確定の Enter で改名が確定しないようにする。
+    bindEnter(input, function () {
+      submitRenameWall(wall, input.value);
+    });
+
     setTimeout(function () {
       input.focus();
       input.select();
@@ -927,11 +961,12 @@ loginDivider: document.getElementById('login-divider'),
   }
 
   el.wallNewTermAddBtn.addEventListener('click', addNewWallTerm);
-  el.wallNewTermInput.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Enter') {
-      evt.preventDefault();
-      addNewWallTerm();
-    }
+  bindEnter(el.wallNewTermInput, addNewWallTerm);
+  bindEnter(el.wallNewNameInput, function () {
+    el.wallCreateBtn.click();
+  });
+  bindEnter(el.modlistActorInput, function () {
+    el.modlistLoadBtn.click();
   });
 
   el.wallCreateBtn.addEventListener('click', function () {
@@ -1288,6 +1323,45 @@ loginDivider: document.getElementById('login-divider'),
     });
   }
 
+  /**
+   * テキスト入力の Enter を、IME の変換確定と区別して拾う。
+   *
+   * 日本語・中国語・韓国語の入力では、変換候補を確定する Enter が
+   * そのまま送信として扱われてしまう。変換中かどうかを見て抑止する。
+   *
+   * 判定は 3 段構え。
+   *  - compositionstart / compositionend で自前に変換中を追う
+   *  - evt.isComposing (標準)
+   *  - evt.keyCode === 229 (isComposing を立てない古い実装への保険)
+   * さらに、変換確定の直後に同じ Enter がもう一度 keydown として
+   * 届く実装があるため、確定から次のイベントループまでは無視する。
+   */
+  function bindEnter(input, handler) {
+    if (!input) return;
+    var composing = false;
+    var justComposed = false;
+
+    input.addEventListener('compositionstart', function () {
+      composing = true;
+    });
+    input.addEventListener('compositionend', function () {
+      composing = false;
+      justComposed = true;
+      setTimeout(function () {
+        justComposed = false;
+      }, 0);
+    });
+
+    input.addEventListener('keydown', function (evt) {
+      if (evt.key !== 'Enter') return;
+      // 変換中でも既定動作は止める。フォーム内の入力欄では、
+      // 何もしないと変換確定の Enter がそのまま暗黙送信になってしまう。
+      evt.preventDefault();
+      if (composing || justComposed || evt.isComposing || evt.keyCode === 229) return;
+      handler();
+    });
+  }
+
   // ==========================================================
   // イベントハンドラ
   // ==========================================================
@@ -1322,9 +1396,7 @@ loginDivider: document.getElementById('login-divider'),
   }
 
   el.termAddBtn.addEventListener('click', addTerm);
-  el.termInput.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Enter') addTerm();
-  });
+  bindEnter(el.termInput, addTerm);
 
   el.jetstreamSwitchBtn.addEventListener('click', function () {
     var host = el.jetstreamSelect.value;
@@ -1459,8 +1531,8 @@ loginDivider: document.getElementById('login-divider'),
       });
   });
 
-  el.handleInput.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Enter') el.oauthBtn.click();
+  bindEnter(el.handleInput, function () {
+    el.oauthBtn.click();
   });
 
   el.connectBtn.addEventListener('click', function () {
@@ -1497,10 +1569,8 @@ loginDivider: document.getElementById('login-divider'),
       });
   });
 
-  el.tokenInput.addEventListener('keydown', function (evt) {
-    if (evt.key === 'Enter') {
-      el.connectBtn.click();
-    }
+  bindEnter(el.tokenInput, function () {
+    el.connectBtn.click();
   });
 
   el.clearTokenBtn.addEventListener('click', function () {
