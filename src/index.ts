@@ -12,9 +12,10 @@ setLogLevel(config.server.logLevel);
 const log = createLogger('main');
 
 async function main(): Promise<void> {
-  if (config.event.normalizedHashtags.length === 0) {
-    log.error('HASHTAGS が空です。.env に監視するハッシュタグを設定してください。');
-    process.exit(1);
+  // 監視語が未設定でも起動する。キーワードだけの運用や、
+  // 起動してから管理画面で設定する運用を妨げないため。
+  if (config.event.terms.length === 0) {
+    log.warn('監視語が未設定です。管理画面から設定するまで投稿は拾われません。');
   }
 
   // トークン方式が有効なときだけ、トークンに関する検証を行う。

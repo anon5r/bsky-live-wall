@@ -214,7 +214,8 @@ let cached: AppConfig | null = null;
 export function loadConfig(): AppConfig {
   if (cached) return cached;
 
-  const hashtags = list('HASHTAGS', ['bskyevent']);
+  // 既定値を置かない。ハッシュタグなし (キーワードのみ、または後から設定) を許すため。
+  const hashtags = list('HASHTAGS');
   const keywords = list('KEYWORDS');
   const mode = str('MODERATION_MODE', 'open') === 'approve' ? 'approve' : 'open';
 

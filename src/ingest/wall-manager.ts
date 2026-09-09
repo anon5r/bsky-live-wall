@@ -203,8 +203,8 @@ export class WallManager extends EventEmitter implements WallSource {
     if (this.walls.size >= MAX_WALLS) {
       throw new Error(`ウォールは ${MAX_WALLS} 個までです`);
     }
+    // 監視語なしのウォールも作れる。作ってから設定する運用のため。
     const terms = buildTerms(input.terms).slice(0, MAX_TERMS);
-    if (terms.length === 0) throw new Error('監視語を 1 つ以上指定してください');
 
     let id = normalizeWallId(input.id ?? input.name);
     if (id === '' || this.walls.has(id)) {
@@ -264,12 +264,9 @@ export class WallManager extends EventEmitter implements WallSource {
       getPending: (limit) => wall.store.getPending(limit),
       getTerms: () => wall.terms,
       setTerms: (input) => {
+        // 空にすることも許す。設定をやり直す途中経過として起こりうるため。
+        // 監視語が無いウォールは何も拾わず、待機画面のままになる。
         const terms = buildTerms(input).slice(0, MAX_TERMS);
-        // 監視語を空にすると何も拾えなくなる。呼び出し側の検証漏れに備える。
-        if (terms.length === 0) {
-          log.warn('監視語を空にしようとしたため無視しました');
-          return wall.terms;
-        }
         wall.terms = terms;
         log.info(`監視語を変更しました (${wall.id})`, {
           terms: terms.map((t) => `${t.type}:${t.value}`),

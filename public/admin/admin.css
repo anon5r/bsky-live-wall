@@ -863,3 +863,23 @@ button {
   color: inherit;
   font: inherit;
 }
+
+/* ---------- 配信スイッチ ---------- */
+
+/*
+ * 停止中であることを色でも分かるようにする。
+ * wa-switch の既定は OFF が中立色で、止まっていることが伝わりにくい。
+ * トラックは ::part(control) で light DOM 側から直接指定できる。
+ */
+#pause-toggle::part(control) {
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* checked は属性として反映される。反映されない環境向けに
+   JS 側でも .is-on クラスを付けており、どちらでも緑になる。 */
+#pause-toggle[checked]::part(control),
+#pause-toggle.is-on::part(control) {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+}

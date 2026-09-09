@@ -151,6 +151,8 @@
 
   // ---------- 状態 ----------
   var pollTimer = null;
+  /** サーバーの起動時刻。稼働時間を毎秒描き直すために保持する。 */
+  var serverStartedAt = 0;
   var sessionExpiresAt = 0;
   // サーバーが受け付ける認証方式。エラーメッセージの出し分けに使う。
   var authConfig = { token: true, oauth: false };
@@ -471,7 +473,10 @@
     el.jsReconnects.textContent = (jetstream.reconnects != null) ? String(jetstream.reconnects) : '-';
 
     el.modMode.textContent = state.moderationMode === 'approve' ? '承認モード' : '公開モード';
-    el.uptime.textContent = formatUptime(stats.startedAt);
+    // 稼働時間はポーリング間隔 (3 秒) ではなく毎秒進めたいので、
+    // 起点だけ保持してローカルのタイマーで描き直す。
+    serverStartedAt = stats.startedAt || 0;
+    el.uptime.textContent = formatUptime(serverStartedAt);
 
     // 統計 (選択中のウォールのもの)
     el.statMatched.textContent = stats.matched != null ? stats.matched : 0;
@@ -526,9 +531,17 @@
     // 稼働中 (配信有効) を checked=true、停止中を checked=false とする。
     // 停止中は一目で分かるよう、赤系の配色にする (CSS 側で対応)。
     el.pauseToggle.checked = !isPaused;
+    // checked が属性として反映されない環境でも色が変わるよう、クラスでも状態を持つ。
+    el.pauseToggle.classList.toggle('is-on', !isPaused);
     el.pauseToggleLabel.textContent = isPaused ? '停止中' : '有効';
     el.pauseBanner.hidden = !isPaused;
   }
+
+  // 稼働時間は 1 秒ごとに進める。サーバーへの問い合わせは不要で、
+  // 起点からの差分を計算し直すだけ。ポーリング間隔 (3 秒) に引きずられない。
+  setInterval(function () {
+    if (serverStartedAt) el.uptime.textContent = formatUptime(serverStartedAt);
+  }, 1000);
 
   function renderPendingList(posts) {
     el.pendingCount.textContent = String(posts.length);

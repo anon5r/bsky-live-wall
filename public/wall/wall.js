@@ -508,7 +508,12 @@
     const normalized = tags.map((t) => (t.startsWith('#') ? t : '#' + t));
 
     if (normalized.length === 0) {
-      waitingHintEl.textContent = 'ハッシュタグが設定されていません';
+      // ハッシュタグが無くてもキーワードだけで監視している場合がある。
+      const hasKeyword =
+        Array.isArray(wallState.terms) && wallState.terms.some((t) => t.type === 'keyword');
+      waitingHintEl.textContent = hasKeyword
+        ? 'キーワードで監視しています。該当する投稿があると表示されます。'
+        : '監視対象が設定されていません。管理画面から設定してください。';
       return;
     }
 

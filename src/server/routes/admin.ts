@@ -431,8 +431,8 @@ export function registerAdminRoutes(
       if (typeof name !== 'string' || name.trim() === '') {
         return badRequest(reply, 'name は空でない文字列で指定してください');
       }
-      if (!Array.isArray(terms) || terms.length === 0) {
-        return badRequest(reply, 'terms を 1 つ以上指定してください');
+      if (!Array.isArray(terms)) {
+        return badRequest(reply, 'terms は配列で指定してください');
       }
       const parsed = parseTerms(terms);
       if (typeof parsed === 'string') return badRequest(reply, parsed);
@@ -499,16 +499,10 @@ export function registerAdminRoutes(
     }
     // 検証はすべて適用の前に済ませる。
     // 途中で弾く場合でも、設定を書き換えたあとで 400 を返してはいけない。
-    if (terms.length === 0) {
-      return badRequest(reply, '監視語を 1 つ以上指定してください');
-    }
     const parsed = parseTerms(terms);
     if (typeof parsed === 'string') return badRequest(reply, parsed);
 
     const applied = wall.setTerms(parsed);
-    if (applied.length === 0) {
-      return badRequest(reply, '有効な監視語が 1 つもありません');
-    }
     recordAudit(
       'terms',
       `${wall.id}: ${applied.map((t) => `${t.type}:${t.value}`).join(',')}`,

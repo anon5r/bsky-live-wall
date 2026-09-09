@@ -23,6 +23,7 @@ cp .env.example .env
 ```
 
 `.env` の `HASHTAGS` をイベントのハッシュタグに書き換えます。
+未設定のままでも起動でき、その場合は管理画面から設定します。
 
 ```dotenv
 HASHTAGS=myevent2026
@@ -82,7 +83,7 @@ URL クエリで `.env` の設定を上書きできます。
 
 | 変数 | 既定値 | 説明 |
 | --- | --- | --- |
-| `HASHTAGS` | `bskyevent` | 監視するハッシュタグ (カンマ区切りで複数可) |
+| `HASHTAGS` | 空 | 監視するハッシュタグ (カンマ区切りで複数可)。空でも起動する |
 | `KEYWORDS` | 空 | ハッシュタグ以外に監視するキーワード (本文の部分一致) |
 | `KEYWORD_REQUIRE_APPROVAL` | `true` | キーワードだけで一致した投稿を承認待ちに回すか |
 | `MODERATION_MODE` | `open` | `approve` にすると運営が承認した投稿だけを表示 |
