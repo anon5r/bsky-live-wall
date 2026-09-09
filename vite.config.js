@@ -15,6 +15,8 @@ export default defineConfig({
   root: fileURLToPath(new URL('./src/admin', import.meta.url)),
   // 生成物は /assets/admin/ から配信される。
   base: '/assets/admin/',
+  // Svelte の設定は src/admin/svelte.config.js (リポジトリ直下の再エクスポート)
+  // をプラグインが自動で読み込む。
   plugins: [svelte()],
   build: {
     outDir: fileURLToPath(new URL('./public/admin', import.meta.url)),

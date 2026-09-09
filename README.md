@@ -361,6 +361,16 @@ OAuth は本人確認までを担い、管理してよいかは `ADMIN_ACTORS` �
 | `public/admin/assets/*.css` | 約 200KB (gzip 約 41KB) |
 | Font Awesome の webfont | 約 260KB |
 
+### エディタでの補完
+
+Web Awesome は `package.json` に `web-types` と `customElements` を宣言しているため、
+JetBrains 系のエディタはカスタム要素の属性補完を自動で拾います。
+VS Code で補完させたい場合は、`html.customData` に
+`node_modules/@awesome.me/webawesome/dist/vscode.html-custom-data.json` を指定します。
+
+なお、これらはエディタ向けのメタデータであり、**Svelte のコンパイラは読み込みません**。
+ビルド時の警告とは無関係です。
+
 ### 管理画面のビルド
 
 ```bash
