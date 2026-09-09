@@ -1,9 +1,773 @@
-/* 最小限の土台。詳細はコンポーネント側で持つ。 */
-:root {
-  color-scheme: light dark;
+/* hidden 属性を確実に効かせる。
+ * クラス側の display 指定 (例: .login-screen { display: flex }) は
+ * ブラウザ既定の [hidden] { display: none } より詳細度が高く、
+ * 指定しないと hidden にしても要素が消えない。 */
+[hidden] {
+  display: none !important;
 }
 
+/* ==========================================================
+   Bluesky Live Wall - 管理画面スタイル
+   運営が長時間見ても疲れない実務的な UI を目指す。
+   ライトテーマ既定、[data-theme="dark"] で上書き。
+   ========================================================== */
+
+:root {
+  color-scheme: light dark;
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f0f1f4;
+  --color-border: #d9dce1;
+  --color-text: #1c1f26;
+  --color-text-muted: #5c6370;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-neutral: #6b7280;
+  --color-neutral-hover: #4b5563;
+  --color-danger: #dc2626;
+  --color-danger-hover: #b91c1c;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-shadow: rgba(20, 24, 33, 0.08);
+  --radius: 8px;
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #14161a;
+  --color-surface: #1d2026;
+  --color-surface-alt: #24272e;
+  --color-border: #33363e;
+  --color-text: #e7e9ee;
+  --color-text-muted: #9298a4;
+  --color-primary: #3b82f6;
+  --color-primary-hover: #60a5fa;
+  --color-neutral: #7d8492;
+  --color-neutral-hover: #9aa1ad;
+  --color-danger: #ef4444;
+  --color-danger-hover: #f87171;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-shadow: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-bg: #14161a;
+    --color-surface: #1d2026;
+    --color-surface-alt: #24272e;
+    --color-border: #33363e;
+    --color-text: #e7e9ee;
+    --color-text-muted: #9298a4;
+    --color-primary: #3b82f6;
+    --color-primary-hover: #60a5fa;
+    --color-neutral: #7d8492;
+    --color-neutral-hover: #9aa1ad;
+    --color-danger: #ef4444;
+    --color-danger-hover: #f87171;
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-shadow: rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic', Meiryo, sans-serif;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP',
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ---------- 一時停止バナー ---------- */
+.pause-banner {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  background: var(--color-danger);
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  padding: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- ボタン共通 ---------- */
+.btn {
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  transition:
+    background-color 0.15s ease,
+    transform 0.05s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.btn-neutral {
+  background: var(--color-neutral);
+  color: #fff;
+}
+.btn-neutral:hover {
+  background: var(--color-neutral-hover);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  background: var(--color-danger-hover);
+}
+
+.btn-large {
+  min-height: 52px;
+  font-size: 1.05rem;
+  flex: 1;
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.btn-confirming {
+  background: var(--color-danger) !important;
+  color: #fff !important;
+  animation: pulse-confirm 0.9s ease-in-out infinite;
+}
+
+.btn-confirming i {
+  animation: none;
+}
+
+@keyframes pulse-confirm {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ---------- アプリ全体レイアウト ---------- */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.app-header h1 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.app-header-sub {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.app-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 20px 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width: 1023px) {
+  .main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panel-count {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* ---------- 状態パネル ---------- */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+  margin-bottom: 16px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-item wa-badge {
+  align-self: flex-start;
+}
+
+.status-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-value {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.stat-box {
+  background: var(--color-surface-alt);
+  border-radius: var(--radius);
+  padding: 10px;
+  text-align: center;
+}
+
+.stat-num {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 操作パネル ---------- */
+.control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.control-row:last-child {
+  border-bottom: none;
+}
+
+.control-label {
+  font-weight: 600;
+}
+
+.control-note {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.control-label .control-note {
+  display: block;
+  margin: 4px 0 0;
+  font-weight: 400;
+}
+
+/* モニター配信スイッチ。checked=false (停止中) を危険色で示す。 */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pause-toggle {
+  --thumb-size: 22px;
+}
+
+.pause-toggle::part(control) {
+  background-color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.pause-toggle[checked]::part(control),
+.pause-toggle.is-on::part(control) {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.toggle-text {
+  font-weight: 600;
+  min-width: 60px;
+  text-align: left;
+}
+
+/* ---------- 投稿リスト ---------- */
+.post-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 640px;
+  overflow-y: auto;
+}
+
+.empty-msg {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 20px 0;
+}
+
+.post-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--color-surface-alt);
+}
+
+.post-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.post-author {
+  font-weight: 700;
+}
+
+.post-handle {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.post-time {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.post-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 8px;
+}
+
+.post-meta {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.post-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 非表示・ブロックの復元パネル ---------- */
+
+.actor-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.actor-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.actor-item.actor-item-wrap {
+  align-items: flex-start;
+}
+
+.actor-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.panel-hidden .post-item,
+.panel-blocked .actor-item {
+  opacity: 0.85;
+}
+
+/* ---------- 監視設定・モデレーションリスト ---------- */
+
+.field {
+  margin-top: 16px;
+}
+
+.field:first-of-type {
+  margin-top: 0;
+}
+
+.field > label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.field-row > * {
+  min-width: 0;
+}
+
+.field-row wa-input,
+.field-row wa-select {
+  flex: 1 1 auto;
+}
+
+.field-row .btn,
+.field-row wa-button {
+  flex: 0 0 auto;
+}
+
+.field-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.list-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.list-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.list-badge-mod {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+}
+
+.list-badge-curate {
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+@media (max-width: 640px) {
+  .field-row {
+    flex-direction: column;
+  }
+}
+
+/* ---------- アイコン ---------- */
+
+.panel-title i,
+.control-label i,
+.field > label i {
+  margin-right: 6px;
+  opacity: 0.75;
+}
+
+.btn i {
+  margin-right: 4px;
+}
+
+/* ---------- 監視対象のチップ ---------- */
+
+.term-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- ウォールのタブ ---------- */
+
+.panel-full {
+  grid-column: 1 / -1;
+}
+
+.panel-walltabs wa-tab-group {
+  --indicator-color: var(--color-primary);
+}
+
+.panel-walltabs wa-tab-panel::part(base) {
+  padding-top: 16px;
+}
+
+.wall-panel-content .panel + .panel {
+  margin-top: 16px;
+}
+
+.wall-rename-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wall-rename-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wall-rename-form wa-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wall-manage-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.wall-default-badge {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ---------- スコープ表示 (ウォール単位 / 全ウォール共通) ---------- */
+
+.scope-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.scope-tag-shared {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+}
+
+.scope-tag-wall {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
+.panel-title .scope-tag {
+  margin-left: 4px;
+  font-size: 10px;
+}
+
+.panel-subtitle {
+  margin: -6px 0 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-warning);
+  color: #1c1f26;
+  padding: 10px 20px;
+  border-radius: var(--radius);
+  font-weight: 600;
+  z-index: 1000;
+  box-shadow: 0 4px 16px var(--color-shadow);
+  max-width: 90vw;
+}
+
+/* ---------- 確認ダイアログ ---------- */
+.confirm-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+/* ---------- ログイン画面 ---------- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 32px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 4px 24px var(--color-shadow);
+}
+
+.login-card h1 {
+  margin: 0 0 12px;
+  font-size: 1.4rem;
+}
+
+.login-desc {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+}
+
+.login-error {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin: 6px 0 12px;
+  font-weight: 600;
+}
+
+.login-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.login-method + .login-method {
+  margin-top: 4px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.login-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }

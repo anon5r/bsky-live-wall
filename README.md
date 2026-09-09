@@ -346,25 +346,29 @@ OAuth は本人確認までを担い、管理してよいかは `ADMIN_ACTORS` �
 | 画面 | 依存 |
 | --- | --- |
 | 会場モニター (`/wall`) | **依存ゼロ**。素の HTML / CSS / JavaScript のみ |
-| 管理画面 (`/admin`) | Web Awesome (MIT) + Font Awesome Free |
+| 管理画面 (`/admin`) | Svelte 5 + Web Awesome (MIT) + Font Awesome Free |
 
 会場モニターを依存ゼロに保っているのは、イベント当日の障害要因を増やさないためです。
 管理画面は運営端末で使うもので、タブ・スイッチ・ダイアログ・フォーム部品を
 自前で保守し続けるコストのほうが大きいため、コンポーネント集を使っています。
 
-**どちらも CDN は参照しません。** `pnpm build` / `pnpm dev` 実行時に
-`node_modules` から `public/vendor/` へ複製し、自前で配信します
-(`scripts/vendor-assets.mjs`)。会場のネットワークが不安定でも表示が崩れません。
+**どちらも CDN は参照しません。** 管理画面の依存は Vite がバンドルへ含めるため、
+配信されるのは自己完結したファイルだけです。会場のネットワークが不安定でも表示が崩れません。
 
-| 複製されるもの | サイズ |
+| 生成物 | サイズ |
 | --- | --- |
-| `public/vendor/fontawesome/` | 約 0.4MB |
-| `public/vendor/webawesome/` | 約 3.4MB (styles / chunks / components のみ) |
-| `public/vendor/lit/` | 約 1.6MB (Web Awesome の実行時依存。`.map` / `.d.ts` は除く) |
+| `public/admin/assets/*.js` | 約 350KB (gzip 約 95KB) |
+| `public/admin/assets/*.css` | 約 200KB (gzip 約 41KB) |
+| Font Awesome の webfont | 約 260KB |
 
-Web Awesome のコンポーネントは `import ... from "lit"` のような裸のパッケージ指定子を
-使います。ブラウザはこれを解決できないため、実体をローカルへ複製したうえで、
-管理画面の HTML に **importmap** を置いて対応づけています。
+### 管理画面のビルド
+
+```bash
+pnpm build      # サーバー (tsc) と管理画面 (vite) の両方
+pnpm dev:admin  # 管理画面だけを watch ビルド
+```
+
+ソースは `src/admin/`、生成物は `public/admin/` (git 管理外) です。
 
 `public/vendor/` は生成物のため git 管理外です。`pnpm install` 後に
 `pnpm build`、`pnpm dev`、`pnpm vendor` のいずれかを実行すると作られます。
