@@ -252,7 +252,7 @@ export function loadConfig(): AppConfig {
       hostFailoverAfter: num('JETSTREAM_HOST_FAILOVER_AFTER', 3),
       replayWindowSec: num('JETSTREAM_REPLAY_WINDOW_SEC', 30),
       // Jetstream の保持期間はおよそ 36 時間。それを超える指定は境界に丸められる。
-      startupBackfillMinutes: Math.max(0, Math.min(num('STARTUP_BACKFILL_MINUTES', 120), 2160)),
+      startupBackfillMinutes: Math.max(0, Math.min(num('STARTUP_BACKFILL_MINUTES', 0), 2160)),
     },
     buffer: {
       size: num('BUFFER_SIZE', 200),

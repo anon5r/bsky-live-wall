@@ -75,6 +75,8 @@ Cookie 認証では状態変更操作に `X-Requested-With: bsky-live-wall` ヘ�
 | POST | `/api/admin/clear` | - | 表示中の全消去 |
 | GET | `/api/admin/terms` | - | 監視対象の一覧 |
 | POST | `/api/admin/terms` | `{ terms: { value, type }[] }` | 監視対象の一括差し替え (最大 20 件、`type` は `hashtag` / `keyword`) |
+| GET | `/api/admin/backfill` | - | 取り込みの実行状況 |
+| POST | `/api/admin/backfill` | `{ minutes, wall? }` | 過去の取り込みを実行 (1〜2160 分) |
 | GET | `/api/admin/jetstream` | - | 接続先の候補と現在の接続先 |
 | POST | `/api/admin/jetstream` | `{ host: string }` | 接続先の切り替え |
 | GET | `/api/admin/modlists` | - | 購読中のモデレーションリスト |

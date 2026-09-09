@@ -350,6 +350,7 @@ export function registerAdminRoutes(
       blocked,
       modLists,
       jetstreamHosts,
+      backfill: source.getBackfillStatus(),
       walls: source.getWalls(),
     });
   });
@@ -540,6 +541,40 @@ export function registerAdminRoutes(
     recordAudit('jetstream-switch', host, request, undefined, sessions);
     return reply.send({ ok: true, host });
   });
+
+  // ---- バックフィル (過去の取り込み) ----
+
+  app.get('/api/admin/backfill', async (_request, reply) =>
+    reply.send({ status: source.getBackfillStatus() })
+  );
+
+  app.post<{ Body: { minutes?: unknown; wall?: unknown } }>(
+    '/api/admin/backfill',
+    async (request, reply) => {
+      const { minutes, wall } = request.body ?? {};
+      if (typeof minutes !== 'number' || !Number.isFinite(minutes)) {
+        return badRequest(reply, 'minutes は数値で指定してください');
+      }
+      if (wall !== undefined && typeof wall !== 'string') {
+        return badRequest(reply, 'wall は文字列で指定してください');
+      }
+      const result = source.startBackfill({
+        minutes,
+        ...(typeof wall === 'string' && wall !== '' ? { wallId: wall } : {}),
+      });
+      if (!result.ok) {
+        return badRequest(reply, result.message ?? 'バックフィルを開始できません');
+      }
+      recordAudit(
+        'backfill',
+        `${minutes} 分 / 対象: ${typeof wall === 'string' && wall !== '' ? wall : '全ウォール'}`,
+        request,
+        undefined,
+        sessions
+      );
+      return reply.send({ ok: true, status: source.getBackfillStatus() });
+    }
+  );
 
   // ---- モデレーションリスト ----
 

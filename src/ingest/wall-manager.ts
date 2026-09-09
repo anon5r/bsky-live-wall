@@ -13,6 +13,7 @@ import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { buildTerms, type AppConfig } from '../shared/config.js';
 import type {
+  BackfillStatus,
   DisplayConfig,
   JetstreamEvent,
   JetstreamStatus,
@@ -45,6 +46,8 @@ const HIDDEN_URI_LIMIT = 5000;
 const MAX_TERMS = 20;
 /** ウォール数の上限。 */
 const MAX_WALLS = 10;
+/** 遡れる上限。Jetstream の保持期間 (実測およそ 36 時間) に合わせる。 */
+const MAX_BACKFILL_MINUTES = 2160;
 /** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
 const BACKFILL_DELETED_LIMIT = 50_000;
 
@@ -75,6 +78,17 @@ export class WallManager extends EventEmitter implements WallSource {
   /** バックフィルが到達する前にライブ側で削除が観測された uri。 */
   private backfillDeleted = new Set<string>();
   private backfillDroppedCount = 0;
+  /** 取り込み対象のウォール。null なら全ウォール。 */
+  private backfillTargets: string[] | null = null;
+  private backfillStatus: BackfillStatus = {
+    running: false,
+    minutes: 0,
+    targetWallId: null,
+    startedAt: null,
+    finishedAt: null,
+    caughtUp: false,
+    added: 0,
+  };
 
   private readonly stateEmitTimers = new Map<string, NodeJS.Timeout>();
   private readonly stateEmitPending = new Set<string>();
@@ -121,8 +135,16 @@ export class WallManager extends EventEmitter implements WallSource {
     this.jetstream.on('commit', (event) => this.handleCommit(event, 'live'));
 
     this.backfill.on('commit', (event) => this.handleCommit(event, 'backfill'));
-    this.backfill.on('done', () => {
-      this.flushBackfill();
+    this.backfill.on('done', (info) => {
+      const added = this.flushBackfill();
+      this.backfillTargets = null;
+      this.backfillStatus = {
+        ...this.backfillStatus,
+        running: false,
+        finishedAt: Date.now(),
+        caughtUp: info.caughtUp,
+        added,
+      };
       this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: false };
       this.emitStateAll();
     });
@@ -141,8 +163,7 @@ export class WallManager extends EventEmitter implements WallSource {
   async start(): Promise<void> {
     this.jetstream.start();
     if (this.config.jetstream.startupBackfillMinutes > 0) {
-      this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: true };
-      this.backfill.start();
+      this.startBackfill({ minutes: this.config.jetstream.startupBackfillMinutes });
     }
     this.modLists.start();
   }
@@ -372,6 +393,51 @@ export class WallManager extends EventEmitter implements WallSource {
     return count;
   }
 
+  // ---- バックフィル ----
+
+  startBackfill(input: { minutes: number; wallId?: string }): { ok: boolean; message?: string } {
+    if (this.backfillStatus.running) {
+      return { ok: false, message: 'バックフィルが既に実行中です' };
+    }
+    const minutes = Math.floor(input.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return { ok: false, message: '遡る分数は 1 以上で指定してください' };
+    }
+    if (minutes > MAX_BACKFILL_MINUTES) {
+      return {
+        ok: false,
+        message: `Jetstream の保持期間の都合で ${MAX_BACKFILL_MINUTES} 分 (約 36 時間) までです`,
+      };
+    }
+    if (input.wallId !== undefined && !this.walls.has(input.wallId)) {
+      return { ok: false, message: '指定されたウォールがありません' };
+    }
+
+    this.backfillTargets = input.wallId ? [input.wallId] : null;
+    this.backfillStatus = {
+      running: true,
+      minutes,
+      targetWallId: input.wallId ?? null,
+      startedAt: Date.now(),
+      finishedAt: null,
+      caughtUp: false,
+      added: 0,
+    };
+    this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: true };
+    this.emitStateAll();
+    this.backfill.run(minutes);
+    return { ok: true };
+  }
+
+  getBackfillStatus(): BackfillStatus {
+    return { ...this.backfillStatus };
+  }
+
+  /** このウォールが今回の取り込み対象か。 */
+  private isBackfillTarget(wallId: string): boolean {
+    return this.backfillTargets === null || this.backfillTargets.includes(wallId);
+  }
+
   // ---- Jetstream ----
 
   getJetstreamHosts(): string[] {
@@ -495,7 +561,8 @@ export class WallManager extends EventEmitter implements WallSource {
       });
 
       if (source === 'backfill') {
-        wall.backfillBuffer.set(uri, wallPost);
+        // 対象外のウォールには反映しない (ウォール指定の取り込みに対応するため)。
+        if (this.isBackfillTarget(wall.id)) wall.backfillBuffer.set(uri, wallPost);
         continue;
       }
 
@@ -519,7 +586,8 @@ export class WallManager extends EventEmitter implements WallSource {
   }
 
   /** バックフィルで溜めた投稿を、削除済みを除いて確定させる。 */
-  private flushBackfill(): void {
+  private flushBackfill(): number {
+    let total = 0;
     for (const wall of this.walls.values()) {
       const survivors: WallPost[] = [];
       let dropped = 0;
@@ -538,6 +606,7 @@ export class WallManager extends EventEmitter implements WallSource {
           `(削除済み・非表示のため除外: ${dropped + this.backfillDroppedCount} 件)`
       );
       if (survivors.length === 0) continue;
+      total += survivors.length;
 
       survivors.sort((a, b) => b.timeUs - a.timeUs);
 
@@ -555,6 +624,7 @@ export class WallManager extends EventEmitter implements WallSource {
     }
     this.backfillDeleted = new Set();
     this.backfillDroppedCount = 0;
+    return total;
   }
 
   /** 復元した投稿を表示へ戻す。時系列が崩れないよう挿入位置を選ぶ。 */

@@ -30,7 +30,8 @@ export interface BackfillReaderEvents {
 
 export class BackfillReader extends EventEmitter {
   private readonly host: string;
-  private readonly minutes: number;
+  /** 今回の実行で遡る分数。実行ごとに変わる。 */
+  private minutes = 0;
 
   private ws: WebSocket | null = null;
   private finished = false;
@@ -52,14 +53,32 @@ export class BackfillReader extends EventEmitter {
   constructor(config: AppConfig['jetstream']) {
     super();
     this.host = config.hosts[0] ?? 'jetstream2.us-east.bsky.network';
-    this.minutes = config.startupBackfillMinutes;
+
   }
 
-  start(): void {
+  /** 実行中かどうか。多重起動を防ぐために公開する。 */
+  get running(): boolean {
+    return this.ws !== null;
+  }
+
+  /**
+   * 指定した分数だけ過去に遡って取り込む。
+   * 起動時だけでなく、運用中に管理画面から呼ばれることもあるため、
+   * 実行ごとに内部状態を初期化して何度でも走れるようにしてある。
+   */
+  run(minutes: number): void {
+    if (this.running) {
+      log.warn('バックフィルが既に実行中のため、新しい要求を無視しました');
+      return;
+    }
+    this.minutes = minutes;
     if (this.minutes <= 0) {
       this.finish(true);
       return;
     }
+    // 前回の実行結果を持ち越さない。
+    this.finished = false;
+    this.scanned = 0;
     this.startedAt = Date.now();
     const cursor = (Date.now() - this.minutes * 60_000) * 1_000;
     const url = `wss://${this.host}/subscribe?wantedCollections=${WANTED_COLLECTION}&cursor=${cursor}`;

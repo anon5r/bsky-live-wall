@@ -437,6 +437,7 @@ loginDivider: document.getElementById('login-divider'),
     renderBlockedList(data.blocked || []);
     renderWatchSettings(data);
     renderModLists(data.modLists || []);
+    renderBackfillStatus(data.backfill);
     refreshSessionInfo();
 
     // ウォール単位の表示ラベルと、ウォール切り替え UI / 管理パネルの更新。
@@ -1047,6 +1048,54 @@ loginDivider: document.getElementById('login-divider'),
     if (el.confirmDialog.returnValue === 'ok' && handler) handler();
   });
 
+  /**
+   * 過去の取り込みの実行状況。
+   * 実行中はボタンを塞ぎ、完了したら結果を残して何が起きたか分かるようにする。
+   */
+  var lastBackfillFinishedAt = 0;
+  function renderBackfillStatus(status) {
+    if (!status) {
+      el.backfillStatus.hidden = true;
+      return;
+    }
+    el.backfillRunBtn.disabled = status.running;
+
+    if (status.running) {
+      var elapsed = status.startedAt ? Math.round((Date.now() - status.startedAt) / 1000) : 0;
+      var target = status.targetWallId ? 'ウォール「' + wallNameOf(status.targetWallId) + '」' : '全ウォール';
+      el.backfillStatusText.textContent =
+        '取り込み中: 過去 ' + status.minutes + ' 分 / ' + target + ' (' + elapsed + ' 秒経過)';
+      el.backfillStatus.hidden = false;
+      return;
+    }
+
+    if (!status.finishedAt) {
+      el.backfillStatus.hidden = true;
+      return;
+    }
+
+    var took = status.startedAt ? ((status.finishedAt - status.startedAt) / 1000).toFixed(1) : '-';
+    el.backfillStatusText.textContent =
+      '直近の取り込み: 過去 ' + status.minutes + ' 分 / ' + status.added + ' 件を追加 (' + took + ' 秒)' +
+      (status.caughtUp ? '' : ' — 途中で打ち切られました');
+    el.backfillStatus.hidden = false;
+
+    // 完了した瞬間だけ通知する。ポーリングのたびに出すと煩わしいため。
+    if (status.finishedAt !== lastBackfillFinishedAt) {
+      if (lastBackfillFinishedAt !== 0) {
+        showToast(status.added + ' 件を取り込みました');
+      }
+      lastBackfillFinishedAt = status.finishedAt;
+    }
+  }
+
+  function wallNameOf(id) {
+    for (var i = 0; i < lastWalls.length; i++) {
+      if (lastWalls[i].id === id) return lastWalls[i].name;
+    }
+    return id;
+  }
+
   // 購読中のモデレーションリスト。
   function renderModLists(lists) {
     el.modlistCount.textContent = String(lists.length);
@@ -1408,6 +1457,27 @@ loginDivider: document.getElementById('login-divider'),
 
   el.termAddBtn.addEventListener('click', addTerm);
   bindEnter(el.termInput, addTerm);
+
+  el.backfillRunBtn.addEventListener('click', function () {
+    var minutes = parseInt(el.backfillMinutes.value, 10);
+    if (!minutes || minutes < 1) {
+      showToast('遡る分数を 1 以上で指定してください');
+      return;
+    }
+    var body = { minutes: minutes };
+    if (el.backfillTarget.value === 'current' && currentWallId) body.wall = currentWallId;
+
+    el.backfillRunBtn.disabled = true;
+    callAdminApi('/api/admin/backfill', body)
+      .then(function () {
+        showToast('取り込みを開始しました');
+        fetchState();
+      })
+      .catch(function () {
+        el.backfillRunBtn.disabled = false;
+        showToast('取り込みを開始できませんでした');
+      });
+  });
 
   el.jetstreamSwitchBtn.addEventListener('click', function () {
     var host = el.jetstreamSelect.value;

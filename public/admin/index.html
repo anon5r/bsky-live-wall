@@ -226,6 +226,30 @@
             直近のカーソルから再生して補填されます。
           </p>
         </div>
+
+        <div class="field">
+          <label for="backfill-minutes"><i class="fa-solid fa-clock-rotate-left fa-fw" aria-hidden="true"></i> 過去の投稿を取り込む</label>
+          <div class="field-row">
+            <input type="number" id="backfill-minutes" min="1" max="2160" step="10" value="120"
+                   aria-label="遡る分数" />
+            <select id="backfill-target" aria-label="取り込み対象">
+              <option value="">すべてのウォール</option>
+              <option value="current">選択中のウォールのみ</option>
+            </select>
+            <button id="backfill-run-btn" class="btn btn-neutral">
+              <i class="fa-solid fa-download fa-fw" aria-hidden="true"></i> 取り込む
+            </button>
+          </div>
+          <p class="field-note">
+            指定した分だけ過去に遡って投稿を拾います。ライブ受信と並行して動くため、
+            実行中も新着の表示は止まりません。上限は約 36 時間 (2160 分) です。
+            既に削除された投稿は取り込まれません。
+          </p>
+          <div id="backfill-status" class="inline-info" hidden>
+            <i class="fa-solid fa-spinner fa-fw" aria-hidden="true"></i>
+            <span id="backfill-status-text"></span>
+          </div>
+        </div>
       </section>
 
       <!-- モデレーションリスト -->

@@ -1,4 +1,5 @@
 import type {
+  BackfillStatus,
   DisplayConfig,
   ModListInfo,
   ProfileUpdatePayload,
@@ -95,6 +96,14 @@ export interface WallSource {
   unblockActor(actor: string): number;
   /** ブロック中の投稿者一覧 (DID またはハンドル)。 */
   getBlockedActors(): string[];
+
+  // ---- バックフィル (過去の取り込み) ----
+  /**
+   * 過去に遡って投稿を取り込む。
+   * wallId を指定するとそのウォールだけに反映し、省略すると全ウォールに反映する。
+   */
+  startBackfill(input: { minutes: number; wallId?: string }): { ok: boolean; message?: string };
+  getBackfillStatus(): BackfillStatus;
 
   // ---- Jetstream ----
   getJetstreamHosts(): string[];

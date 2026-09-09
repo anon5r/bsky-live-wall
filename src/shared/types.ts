@@ -150,6 +150,21 @@ export interface RemovePayload {
   reason: 'deleted' | 'hidden' | 'cleared';
 }
 
+/** バックフィル (過去の取り込み) の実行状況。 */
+export interface BackfillStatus {
+  running: boolean;
+  /** 今回 / 直近の実行で遡った分数 */
+  minutes: number;
+  /** 対象ウォール。null なら全ウォール */
+  targetWallId: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  /** 現在に追いつけたか。打ち切られた場合は false */
+  caughtUp: boolean;
+  /** 直近の実行で表示に加わった件数 (ウォール合計) */
+  added: number;
+}
+
 /** 購読中のモデレーションリストの状態。 */
 export interface ModListInfo {
   uri: string;

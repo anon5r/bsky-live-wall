@@ -1140,3 +1140,28 @@ button {
   margin: 4px 0 0;
   font-weight: 400;
 }
+
+/* 進行中・完了の状況表示。警告ではないので中立色にする。 */
+.inline-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.field-row input[type='number'] {
+  flex: 0 0 7em;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+}
