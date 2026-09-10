@@ -71,7 +71,7 @@
 
 | 段階 | 内容 | 状態 |
 | --- | --- | --- |
-| 2-a | `IngestHub` の抽出。`WallManager` から Jetstream / バックフィル / プロフィール解決を分離する | |
+| 2-a | `IngestHub` の抽出。`WallManager` から Jetstream / バックフィル / プロフィール解決を分離する | **完了** |
 | 2-b | `TenantRuntime` 化。残った `WallManager` をテナント単位にする | |
 | 2-c | `TenantRegistry`。single は `.env` から 1 件、multi は `TenantStore` から | |
 | 2-d | server 層のテナント解決。`/e/:eventId` から `TenantRuntime` を引く | |

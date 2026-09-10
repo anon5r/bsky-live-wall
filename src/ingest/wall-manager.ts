@@ -16,7 +16,6 @@ import type {
   BackfillStatus,
   DisplayConfig,
   JetstreamEvent,
-  JetstreamStatus,
   ModListInfo,
   WallPost,
   WallState,
@@ -25,15 +24,13 @@ import type {
   WatchTermType,
 } from '../shared/types.js';
 import type { WallHandle, WallSource, WallSourceEvents } from '../shared/contracts.js';
+import type { IngestHub } from '../shared/ingest-contracts.js';
 import { createLogger } from '../shared/logger.js';
-import { JetstreamClient } from './jetstream-client.js';
-import { BackfillReader } from './backfill-reader.js';
 import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { matchKeywords } from './keyword-matcher.js';
 import { evaluate } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
-import { ProfileHydrator } from './profile-hydrator.js';
 import { Wall, displayFromConfig, normalizeWallId } from './wall.js';
 
 const log = createLogger('wall-manager');
@@ -46,8 +43,6 @@ const HIDDEN_URI_LIMIT = 5000;
 const MAX_TERMS = 20;
 /** ウォール数の上限。 */
 const MAX_WALLS = 10;
-/** 遡れる上限。Jetstream の保持期間 (実測およそ 36 時間) に合わせる。 */
-const MAX_BACKFILL_MINUTES = 2160;
 /** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
 const BACKFILL_DELETED_LIMIT = 50_000;
 
@@ -55,22 +50,12 @@ export const DEFAULT_WALL_ID = 'main';
 
 export class WallManager extends EventEmitter implements WallSource {
   private readonly config: AppConfig;
-  private readonly jetstream: JetstreamClient;
-  private readonly backfill: BackfillReader;
+  private readonly hub: IngestHub;
   private readonly modLists: ModListManager;
-  private readonly hydrator: ProfileHydrator;
 
   private readonly walls = new Map<string, Wall>();
 
   private paused = false;
-  private jetstreamStatus: JetstreamStatus = {
-    connected: false,
-    host: null,
-    lastEventAt: null,
-    reconnects: 0,
-    cursor: null,
-    backfilling: false,
-  };
 
   /** 運営が非表示にした投稿。再配信されても復活させないために保持する。 */
   private readonly hiddenUris = new Set<string>();
@@ -80,15 +65,10 @@ export class WallManager extends EventEmitter implements WallSource {
   private backfillDroppedCount = 0;
   /** 取り込み対象のウォール。null なら全ウォール。 */
   private backfillTargets: string[] | null = null;
-  private backfillStatus: BackfillStatus = {
-    running: false,
-    minutes: 0,
-    targetWallId: null,
-    startedAt: null,
-    finishedAt: null,
-    caughtUp: false,
-    added: 0,
-  };
+  /** 直近のバックフィル要求で指定されたウォール (状態表示用)。 */
+  private backfillTargetWallId: string | null = null;
+  /** 直近のバックフィルで表示に加わった件数。 */
+  private backfillAdded = 0;
 
   private readonly stateEmitTimers = new Map<string, NodeJS.Timeout>();
   private readonly stateEmitPending = new Set<string>();
@@ -100,13 +80,11 @@ export class WallManager extends EventEmitter implements WallSource {
     ...args: Parameters<WallSourceEvents[K]>
   ) => boolean;
 
-  constructor(config: AppConfig) {
+  constructor(config: AppConfig, hub: IngestHub) {
     super();
     this.config = config;
-    this.jetstream = new JetstreamClient(config.jetstream);
-    this.backfill = new BackfillReader(config.jetstream);
+    this.hub = hub;
     this.modLists = new ModListManager(config);
-    this.hydrator = new ProfileHydrator(config);
 
     // 既定ウォールは .env から作る。`/wall` はこれを開く。
     const defaultWall = new Wall(
@@ -119,37 +97,22 @@ export class WallManager extends EventEmitter implements WallSource {
     );
     this.walls.set(defaultWall.id, defaultWall);
 
-    this.jetstream.on('open', (host) => {
-      this.jetstreamStatus = { ...this.jetstreamStatus, connected: true, host };
-      this.emitStateAll();
-    });
-    this.jetstream.on('close', () => {
-      this.jetstreamStatus = {
-        ...this.jetstreamStatus,
-        connected: false,
-        reconnects: this.jetstreamStatus.reconnects + 1,
-      };
-      this.emitStateAll();
-    });
-    this.jetstream.on('error', (err) => log.warn('Jetstream エラー', err));
-    this.jetstream.on('commit', (event) => this.handleCommit(event, 'live'));
+    // 接続状態はハブが持つ。ここでは再描画のきっかけにするだけ。
+    this.hub.on('status', () => this.emitStateAll());
 
-    this.backfill.on('commit', (event) => this.handleCommit(event, 'backfill'));
-    this.backfill.on('done', (info) => {
-      const added = this.flushBackfill();
+    this.hub.on('commit', (commit) => {
+      // 段階 2-a では単一テナントのみなので backfillOwner は常に自分宛だが、
+      // 将来複数テナントが同じハブを共有したときに備えて明示的に照合する。
+      if (commit.source === 'backfill' && commit.backfillOwner !== this.config.event.id) return;
+      this.handleCommit(commit.event, commit.source);
+    });
+    this.hub.on('backfillDone', () => {
+      this.backfillAdded = this.flushBackfill();
       this.backfillTargets = null;
-      this.backfillStatus = {
-        ...this.backfillStatus,
-        running: false,
-        finishedAt: Date.now(),
-        caughtUp: info.caughtUp,
-        added,
-      };
-      this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: false };
       this.emitStateAll();
     });
 
-    this.hydrator.on('profile', ({ did, author }) => {
+    this.hub.on('profile', ({ did, author }) => {
       let updated = false;
       for (const wall of this.walls.values()) {
         if (wall.store.updateAuthor(did, author).length > 0) updated = true;
@@ -161,7 +124,7 @@ export class WallManager extends EventEmitter implements WallSource {
   // ---- ライフサイクル ----
 
   async start(): Promise<void> {
-    this.jetstream.start();
+    await this.hub.start();
     if (this.config.jetstream.startupBackfillMinutes > 0) {
       this.startBackfill({ minutes: this.config.jetstream.startupBackfillMinutes });
     }
@@ -170,9 +133,7 @@ export class WallManager extends EventEmitter implements WallSource {
 
   async stop(): Promise<void> {
     this.modLists.stop();
-    this.backfill.stop();
-    this.jetstream.stop();
-    this.hydrator.stop();
+    await this.hub.stop();
     for (const timer of this.stateEmitTimers.values()) clearTimeout(timer);
     this.stateEmitTimers.clear();
   }
@@ -393,41 +354,31 @@ export class WallManager extends EventEmitter implements WallSource {
   // ---- バックフィル ----
 
   startBackfill(input: { minutes: number; wallId?: string }): { ok: boolean; message?: string } {
-    if (this.backfillStatus.running) {
-      return { ok: false, message: 'バックフィルが既に実行中です' };
-    }
-    const minutes = Math.floor(input.minutes);
-    if (!Number.isFinite(minutes) || minutes <= 0) {
-      return { ok: false, message: '遡る分数は 1 以上で指定してください' };
-    }
-    if (minutes > MAX_BACKFILL_MINUTES) {
-      return {
-        ok: false,
-        message: `Jetstream の保持期間の都合で ${MAX_BACKFILL_MINUTES} 分 (約 36 時間) までです`,
-      };
-    }
+    // ウォールの存在確認はテナント (ウォール) 側の関心事なのでここで見る。
+    // 分数の妥当性チェックや同時実行の制御はハブへ委譲する。
     if (input.wallId !== undefined && !this.walls.has(input.wallId)) {
       return { ok: false, message: '指定されたウォールがありません' };
     }
 
+    const result = this.hub.startBackfill({
+      minutes: input.minutes,
+      owner: this.config.event.id,
+    });
+    if (!result.ok) return result;
+
     this.backfillTargets = input.wallId ? [input.wallId] : null;
-    this.backfillStatus = {
-      running: true,
-      minutes,
-      targetWallId: input.wallId ?? null,
-      startedAt: Date.now(),
-      finishedAt: null,
-      caughtUp: false,
-      added: 0,
-    };
-    this.jetstreamStatus = { ...this.jetstreamStatus, backfilling: true };
+    this.backfillTargetWallId = input.wallId ?? null;
+    this.backfillAdded = 0;
     this.emitStateAll();
-    this.backfill.run(minutes);
     return { ok: true };
   }
 
   getBackfillStatus(): BackfillStatus {
-    return { ...this.backfillStatus };
+    return {
+      ...this.hub.getBackfillStatus(),
+      targetWallId: this.backfillTargetWallId,
+      added: this.backfillAdded,
+    };
   }
 
   /** このウォールが今回の取り込み対象か。 */
@@ -438,16 +389,11 @@ export class WallManager extends EventEmitter implements WallSource {
   // ---- Jetstream ----
 
   getJetstreamHosts(): string[] {
-    return this.jetstream.availableHosts;
+    return this.hub.getHosts();
   }
 
   switchJetstreamHost(host: string): boolean {
-    const ok = this.jetstream.switchHost(host);
-    if (ok) {
-      this.jetstreamStatus = { ...this.jetstreamStatus, connected: false, host };
-      this.emitStateAll();
-    }
-    return ok;
+    return this.hub.switchHost(host);
   }
 
   // ---- モデレーションリスト ----
@@ -490,7 +436,6 @@ export class WallManager extends EventEmitter implements WallSource {
     const commit = event.commit;
     if (!commit || commit.collection !== POST_COLLECTION) return;
 
-    this.jetstreamStatus = { ...this.jetstreamStatus, lastEventAt: Date.now() };
     const uri = `at://${event.did}/app.bsky.feed.post/${commit.rkey}`;
 
     if (commit.operation === 'delete') {
@@ -503,7 +448,7 @@ export class WallManager extends EventEmitter implements WallSource {
         }
       }
       if (bufferedHit) this.backfillDroppedCount += 1;
-      else if (source === 'live' && this.jetstreamStatus.backfilling) {
+      else if (source === 'live' && this.hub.getStatus().backfilling) {
         this.rememberBackfillDeleted(uri);
       }
       return;
@@ -533,7 +478,7 @@ export class WallManager extends EventEmitter implements WallSource {
       for (const hit of hits) hit.wall.store.recordRejected();
       return;
     }
-    const author = this.hydrator.resolve(event.did, event.did);
+    const author = this.hub.resolveAuthor(event.did);
     const modResult = evaluate(
       record,
       { did: event.did, handle: author.handle },
@@ -688,7 +633,7 @@ export class WallManager extends EventEmitter implements WallSource {
       eventSubtitle: this.config.event.subtitle,
       paused: this.paused,
       moderationMode: this.config.moderation.mode,
-      jetstream: { ...this.jetstreamStatus, cursor: this.jetstream.cursor },
+      jetstream: this.hub.getStatus(),
       stats: wall.store.getStats(),
     };
   }
