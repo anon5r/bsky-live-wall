@@ -18,6 +18,7 @@ export function defaultTenantSettings(): TenantSettings {
     allowReplies: true,
     filterLabeled: true,
     allowedLangs: [],
-    startupBackfillMinutes: 120,
+    // 起動時には取り込まない。必要なときに管理画面から実行する。
+    startupBackfillMinutes: 0,
   };
 }

@@ -72,11 +72,21 @@
 | 段階 | 内容 | 状態 |
 | --- | --- | --- |
 | 2-a | `IngestHub` の抽出。`WallManager` から Jetstream / バックフィル / プロフィール解決を分離する | **完了** |
-| 2-b | `TenantRuntime` 化。残った `WallManager` をテナント単位にする | |
-| 2-c | `TenantRegistry`。single は `.env` から 1 件、multi は `TenantStore` から | |
+| 2-b | `TenantRuntime` 化。残った `WallManager` をテナント単位にする | **完了** |
+| 2-c | `TenantRegistry`。single は `.env` から 1 件、multi は `TenantStore` から | **完了** |
 | 2-d | server 層のテナント解決。`/e/:eventId` から `TenantRuntime` を引く | |
 | 2-e | 管理 API のテナント対応と権限判定 | |
 | 3 | 管理画面のテナント選択・メンバー管理 | |
 
 **2-a から 2-c までは単一テナントの挙動を変えないこと。** 既存の検証が
 そのまま通る状態を保ったまま内部構造だけを移す。
+
+### 2-d までの暫定的な制約
+
+`createWallSource(config)` は互換のために残してあり、内部では
+`registry.getDefault()` を返している。multi モードではこれが「最初のテナント」に
+なるため、server 層は 1 テナントしか見えない。テナントの解決は 2-d で入れる。
+
+このため multi モードは**テナントが 1 件も無い状態では起動できない**
+(`getDefault()` が例外を投げる)。2-d で server 層がテナントを解決するように
+なれば解消する。

@@ -1,17 +1,24 @@
 /**
  * Jetstream 受信からモデレーション・プロフィール解決・格納までを束ね、
- * WallSource として server 層へ公開する。
+ * TenantRuntime (= WallSource) として server 層へ公開する。
  *
- * 複数のウォールを扱う。Jetstream 接続は 1 本だけ張り、受信した投稿を
- * 各ウォールの監視語と突き合わせて振り分ける。接続をウォールごとに張ると
- * 同じ全量を何度も受信することになり、帯域と相手側の負荷が無駄に増える。
+ * テナント 1 つ分の実行時。複数のウォールを扱う。Jetstream 接続は
+ * IngestHub が全テナント共有で 1 本だけ張り、受信した投稿をこのテナントの
+ * 各ウォールの監視語と突き合わせて振り分ける。
  *
- * 共有: モデレーション (ブロック / 非表示 / NG ワード / リスト購読 / 一時停止)
- * 個別: 監視語 / 投稿バッファ / 承認待ち / 表示設定
+ * 共有 (このクラスが持つ): モデレーション設定 (NG ワード・言語・承認モード等) /
+ *   ブロック / 非表示 / リスト購読 / 一時停止 / メンバー
+ * 個別 (Wall が持つ): 監視語 / 投稿バッファ / 承認待ち / 表示設定
+ *
+ * `AppConfig` はサーバー全体の設定 (buffer サイズ・appview URL など) であり、
+ * テナントごとに変わる値 (NG ワードや承認モードなど) は `TenantSettings`
+ * (= `tenant.settings`) として別に持つ。`config.moderation` を直接読み書き
+ * していた段階 2-a までの実装から、モデレーション判定はすべて `this.settings`
+ * を読む形に変えてある。
  */
 import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
-import { buildTerms, type AppConfig } from '../shared/config.js';
+import { buildTerms, compilePatterns, type AppConfig } from '../shared/config.js';
 import type {
   BackfillStatus,
   DisplayConfig,
@@ -24,12 +31,13 @@ import type {
   WatchTermType,
 } from '../shared/types.js';
 import type { WallHandle, WallSource, WallSourceEvents } from '../shared/contracts.js';
-import type { IngestHub } from '../shared/ingest-contracts.js';
+import type { IngestHub, TenantRuntime } from '../shared/ingest-contracts.js';
+import type { PersistedWall, Tenant, TenantMember, TenantSettings, TenantStore } from '../shared/tenancy.js';
 import { createLogger } from '../shared/logger.js';
 import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { matchKeywords } from './keyword-matcher.js';
-import { evaluate } from './moderator.js';
+import { evaluate, type ModerationRules } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
 import { Wall, displayFromConfig, normalizeWallId } from './wall.js';
 
@@ -48,10 +56,19 @@ const BACKFILL_DELETED_LIMIT = 50_000;
 
 export const DEFAULT_WALL_ID = 'main';
 
-export class WallManager extends EventEmitter implements WallSource {
+export class WallManager extends EventEmitter implements WallSource, TenantRuntime {
   private readonly config: AppConfig;
   private readonly hub: IngestHub;
+  private readonly store: TenantStore | undefined;
   private readonly modLists: ModListManager;
+
+  readonly tenantId: string;
+  /** テナントのメタ情報 (id/name/ownerDid/createdAt/updatedAt)。settings は別に持つ。 */
+  private tenantMeta: Omit<Tenant, 'settings'>;
+  /** テナントごとの設定。`.env` (single) か TenantStore (multi) が出どころ。 */
+  private settings: TenantSettings;
+  /** settings.ngPatterns (文字列) をコンパイルした結果のキャッシュ。 */
+  private compiledNgPatterns: RegExp[];
 
   private readonly walls = new Map<string, Wall>();
 
@@ -80,30 +97,50 @@ export class WallManager extends EventEmitter implements WallSource {
     ...args: Parameters<WallSourceEvents[K]>
   ) => boolean;
 
-  constructor(config: AppConfig, hub: IngestHub) {
+  constructor(config: AppConfig, hub: IngestHub, tenant: Tenant, deps?: { store?: TenantStore }) {
     super();
     this.config = config;
     this.hub = hub;
+    this.store = deps?.store;
     this.modLists = new ModListManager(config);
 
-    // 既定ウォールは .env から作る。`/wall` はこれを開く。
-    const defaultWall = new Wall(
-      DEFAULT_WALL_ID,
-      config.event.title || 'メイン',
-      config.event.terms,
-      displayFromConfig(config),
-      true,
-      config.buffer.size
-    );
-    this.walls.set(defaultWall.id, defaultWall);
+    this.tenantId = tenant.id;
+    this.tenantMeta = {
+      id: tenant.id,
+      name: tenant.name,
+      ownerDid: tenant.ownerDid,
+      createdAt: tenant.createdAt,
+      updatedAt: tenant.updatedAt,
+    };
+    this.settings = { ...tenant.settings };
+    this.compiledNgPatterns = compilePatterns(this.settings.ngPatterns);
+
+    // 永続化されたウォールがあれば復元し、無ければ既定ウォールを 1 つ作る。
+    const persisted = this.store?.listWalls(this.tenantId) ?? [];
+    if (persisted.length > 0) {
+      for (const p of persisted) this.walls.set(p.id, this.wallFromPersisted(p));
+    } else {
+      const defaultWall = new Wall(
+        DEFAULT_WALL_ID,
+        this.settings.title || tenant.name || 'メイン',
+        // single モードでは `.env` の監視語をそのまま初期値にする。multi モードで
+        // 新規作成されたテナントには監視語の出どころが無いため空で始める。
+        this.store ? [] : config.event.terms,
+        displayFromConfig(config),
+        true,
+        config.buffer.size
+      );
+      this.walls.set(defaultWall.id, defaultWall);
+      this.persistWall(defaultWall);
+    }
 
     // 接続状態はハブが持つ。ここでは再描画のきっかけにするだけ。
     this.hub.on('status', () => this.emitStateAll());
 
     this.hub.on('commit', (commit) => {
-      // 段階 2-a では単一テナントのみなので backfillOwner は常に自分宛だが、
-      // 将来複数テナントが同じハブを共有したときに備えて明示的に照合する。
-      if (commit.source === 'backfill' && commit.backfillOwner !== this.config.event.id) return;
+      // バックフィルは要求元のテナントにしか配らない。ハブは全テナント共有のため、
+      // 自分宛でない再生は無視する。
+      if (commit.source === 'backfill' && commit.backfillOwner !== this.tenantId) return;
       this.handleCommit(commit.event, commit.source);
     });
     this.hub.on('backfillDone', () => {
@@ -121,19 +158,81 @@ export class WallManager extends EventEmitter implements WallSource {
     });
   }
 
+  private wallFromPersisted(p: PersistedWall): Wall {
+    return new Wall(p.id, p.name, p.terms, p.display, p.isDefault, this.config.buffer.size);
+  }
+
+  /** 現在のウォール一覧を永続化する (store があるときのみ)。 */
+  private persistWall(wall: Wall): void {
+    if (!this.store) return;
+    const position = [...this.walls.keys()].indexOf(wall.id);
+    this.store.upsertWall({
+      tenantId: this.tenantId,
+      id: wall.id,
+      name: wall.name,
+      terms: wall.terms,
+      display: wall.display,
+      isDefault: wall.isDefault,
+      position: position >= 0 ? position : this.walls.size,
+    });
+  }
+
+  /** モデレーション判定に渡す形へ、テナント設定から組み立てる。 */
+  private moderationRules(): ModerationRules {
+    return {
+      ngWords: this.settings.ngWords,
+      ngPatterns: this.compiledNgPatterns,
+      blockActors: this.settings.blockActors,
+      allowReplies: this.settings.allowReplies,
+      filterLabeled: this.settings.filterLabeled,
+      allowedLangs: this.settings.allowedLangs,
+    };
+  }
+
+  // ---- TenantRuntime ----
+
+  getTenant(): Tenant {
+    return { ...this.tenantMeta, settings: { ...this.settings } };
+  }
+
+  updateSettings(patch: Partial<TenantSettings>): void {
+    this.settings = { ...this.settings, ...patch };
+    if (patch.ngPatterns !== undefined) {
+      this.compiledNgPatterns = compilePatterns(this.settings.ngPatterns);
+    }
+    this.tenantMeta = { ...this.tenantMeta, updatedAt: Date.now() };
+    if (this.store) {
+      this.store.updateTenant(this.tenantId, { settings: this.settings });
+    }
+    this.emitStateAll();
+  }
+
+  listMembers(): TenantMember[] {
+    return this.store ? this.store.listMembers(this.tenantId) : [];
+  }
+
+  getMemberRole(did: string): TenantMember['role'] | undefined {
+    return this.store ? this.store.getMemberRole(this.tenantId, did) : undefined;
+  }
+
   // ---- ライフサイクル ----
 
+  /**
+   * このテナント分の起動処理。
+   *
+   * IngestHub (Jetstream 接続) は全テナント共有であり、`hub.start()` は
+   * 冪等ではない (呼ぶたびに新しい接続を張ってしまう) ため、ここでは呼ばない。
+   * hub の起動・停止は TenantRegistry が全体で 1 回だけ行う。
+   */
   async start(): Promise<void> {
-    await this.hub.start();
-    if (this.config.jetstream.startupBackfillMinutes > 0) {
-      this.startBackfill({ minutes: this.config.jetstream.startupBackfillMinutes });
+    if (this.settings.startupBackfillMinutes > 0) {
+      this.startBackfill({ minutes: this.settings.startupBackfillMinutes });
     }
     this.modLists.start();
   }
 
   async stop(): Promise<void> {
     this.modLists.stop();
-    await this.hub.stop();
     for (const timer of this.stateEmitTimers.values()) clearTimeout(timer);
     this.stateEmitTimers.clear();
   }
@@ -182,6 +281,7 @@ export class WallManager extends EventEmitter implements WallSource {
       this.config.buffer.size
     );
     this.walls.set(id, wall);
+    this.persistWall(wall);
     log.info(`ウォールを追加しました: ${wall.name} (${id})`, {
       terms: terms.map((t) => `${t.type}:${t.value}`),
     });
@@ -199,6 +299,7 @@ export class WallManager extends EventEmitter implements WallSource {
       clearTimeout(timer);
       this.stateEmitTimers.delete(id);
     }
+    this.store?.deleteWall(this.tenantId, id);
     log.info(`ウォールを削除しました: ${wall.name} (${id})`);
     this.emit('walls', this.getWalls());
     return true;
@@ -212,6 +313,7 @@ export class WallManager extends EventEmitter implements WallSource {
     if (!wall) return undefined;
     if (input.name !== undefined && input.name.trim() !== '') wall.name = input.name.trim();
     if (input.display) wall.display = { ...wall.display, ...input.display };
+    this.persistWall(wall);
     this.emit('walls', this.getWalls());
     this.scheduleStateEmit(id);
     return wall.toSummary();
@@ -229,6 +331,7 @@ export class WallManager extends EventEmitter implements WallSource {
         // 監視語が無いウォールは何も拾わず、待機画面のままになる。
         const terms = buildTerms(input).slice(0, MAX_TERMS);
         wall.terms = terms;
+        this.persistWall(wall);
         log.info(`監視語を変更しました (${wall.id})`, {
           terms: terms.map((t) => `${t.type}:${t.value}`),
         });
@@ -301,13 +404,14 @@ export class WallManager extends EventEmitter implements WallSource {
   }
 
   getBlockedActors(): string[] {
-    return [...this.config.moderation.blockActors];
+    return [...this.settings.blockActors];
   }
 
   blockActor(actor: string): number {
     const needle = actor.toLowerCase();
-    if (!this.config.moderation.blockActors.includes(needle)) {
-      this.config.moderation.blockActors.push(needle);
+    if (!this.settings.blockActors.includes(needle)) {
+      this.settings.blockActors.push(needle);
+      this.persistSettings();
     }
     let count = 0;
     for (const wall of this.walls.values()) {
@@ -333,8 +437,11 @@ export class WallManager extends EventEmitter implements WallSource {
 
   unblockActor(actor: string): number {
     const needle = actor.toLowerCase();
-    const idx = this.config.moderation.blockActors.indexOf(needle);
-    if (idx >= 0) this.config.moderation.blockActors.splice(idx, 1);
+    const idx = this.settings.blockActors.indexOf(needle);
+    if (idx >= 0) {
+      this.settings.blockActors.splice(idx, 1);
+      this.persistSettings();
+    }
 
     let count = 0;
     for (const post of [...this.hiddenPosts.values()]) {
@@ -351,6 +458,12 @@ export class WallManager extends EventEmitter implements WallSource {
     return count;
   }
 
+  /** settings をそのまま永続化する (blockActor など、settings の配列を直接書き換えた後に呼ぶ)。 */
+  private persistSettings(): void {
+    if (!this.store) return;
+    this.store.updateTenant(this.tenantId, { settings: this.settings });
+  }
+
   // ---- バックフィル ----
 
   startBackfill(input: { minutes: number; wallId?: string }): { ok: boolean; message?: string } {
@@ -362,7 +475,7 @@ export class WallManager extends EventEmitter implements WallSource {
 
     const result = this.hub.startBackfill({
       minutes: input.minutes,
-      owner: this.config.event.id,
+      owner: this.tenantId,
     });
     if (!result.ok) return result;
 
@@ -479,11 +592,7 @@ export class WallManager extends EventEmitter implements WallSource {
       return;
     }
     const author = this.hub.resolveAuthor(event.did);
-    const modResult = evaluate(
-      record,
-      { did: event.did, handle: author.handle },
-      this.config.moderation
-    );
+    const modResult = evaluate(record, { did: event.did, handle: author.handle }, this.moderationRules());
     if (!modResult.ok) {
       for (const hit of hits) hit.wall.store.recordRejected();
       return;
@@ -512,8 +621,8 @@ export class WallManager extends EventEmitter implements WallSource {
       // 可能性がある。会場スクリーンに無関係な投稿を出さないため確認を挟む。
       const keywordOnly = tags.length === 0 && keywords.length > 0;
       const needsApproval =
-        this.config.moderation.mode === 'approve' ||
-        (keywordOnly && this.config.moderation.keywordRequireApproval);
+        this.settings.moderationMode === 'approve' ||
+        (keywordOnly && this.settings.keywordRequireApproval);
 
       if (needsApproval) {
         const pendingPost: WallPost = { ...wallPost, status: 'pending' };
@@ -552,7 +661,7 @@ export class WallManager extends EventEmitter implements WallSource {
 
       survivors.sort((a, b) => b.timeUs - a.timeUs);
 
-      if (this.config.moderation.mode === 'approve') {
+      if (this.settings.moderationMode === 'approve') {
         for (const post of survivors) {
           const pendingPost: WallPost = { ...post, status: 'pending' };
           wall.store.addPending(pendingPost);
@@ -629,10 +738,10 @@ export class WallManager extends EventEmitter implements WallSource {
       wallName: wall.name,
       hashtags: wall.hashtags,
       terms: wall.terms,
-      eventTitle: this.config.event.title,
-      eventSubtitle: this.config.event.subtitle,
+      eventTitle: this.settings.title,
+      eventSubtitle: this.settings.subtitle,
       paused: this.paused,
-      moderationMode: this.config.moderation.mode,
+      moderationMode: this.settings.moderationMode,
       jetstream: this.hub.getStatus(),
       stats: wall.store.getStats(),
     };

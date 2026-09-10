@@ -1,7 +1,6 @@
 /**
  * モデレーション判定。純関数のみ。
  */
-import type { AppConfig } from '../shared/config.js';
 import type { BskyPostRecord, WallAuthor } from '../shared/types.js';
 
 /** 除外対象とする自己申告ラベル。 */
@@ -13,13 +12,28 @@ export interface ModerationResult {
 }
 
 /**
+ * evaluate が実際に参照する項目だけを切り出した形。
+ * `AppConfig['moderation']` (単一テナント) も `TenantSettings` から組み立てた
+ * 値 (マルチテナント、NG 正規表現はコンパイル済みで渡す) も、どちらもこの形を
+ * 満たすので特別な変換は要らない。
+ */
+export interface ModerationRules {
+  ngWords: string[];
+  ngPatterns: RegExp[];
+  blockActors: string[];
+  allowReplies: boolean;
+  filterLabeled: boolean;
+  allowedLangs: string[];
+}
+
+/**
  * 投稿を表示してよいか判定する。
  * NG ワード / NG 正規表現 / ブロック actor / リプライ設定 / ラベル / 言語 を評価する。
  */
 export function evaluate(
   record: BskyPostRecord,
   author: { did: string; handle: string },
-  config: AppConfig['moderation']
+  config: ModerationRules
 ): ModerationResult {
   const did = author.did.toLowerCase();
   const handle = author.handle.toLowerCase();

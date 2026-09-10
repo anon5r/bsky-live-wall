@@ -60,6 +60,12 @@ export interface AppConfig {
     mode: ModerationMode;
     ngWords: string[];
     ngPatterns: RegExp[];
+    /**
+     * ngPatterns のコンパイル前の文字列。`TenantSettings.ngPatterns` は
+     * (SQLite に保存するため) 文字列で持つので、single モードのテナントを
+     * 組み立てる際にここから復元する。
+     */
+    ngPatternSources: string[];
     blockActors: string[];
     allowReplies: boolean;
     filterLabeled: boolean;
@@ -196,7 +202,8 @@ function list(key: string, fallback: string[] = []): string[] {
     .filter((s) => s.length > 0);
 }
 
-function compilePatterns(sources: string[]): RegExp[] {
+/** NG 正規表現の文字列表現をコンパイルする。ingest 層 (TenantSettings 由来) からも使う。 */
+export function compilePatterns(sources: string[]): RegExp[] {
   const out: RegExp[] = [];
   for (const src of sources) {
     try {
@@ -269,6 +276,7 @@ export function loadConfig(): AppConfig {
       mode: mode as ModerationMode,
       ngWords: list('NG_WORDS').map((w) => w.toLowerCase()),
       ngPatterns: compilePatterns(list('NG_PATTERNS')),
+      ngPatternSources: list('NG_PATTERNS'),
       blockActors: list('BLOCK_ACTORS').map((a) => a.toLowerCase()),
       allowReplies: bool('ALLOW_REPLIES', true),
       filterLabeled: bool('FILTER_LABELED', true),
