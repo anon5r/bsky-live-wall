@@ -15,6 +15,26 @@ export function setUnauthorizedHandler(handler) {
 }
 
 /**
+ * テナント接頭辞 ('' または '/e/<tenantId>')。
+ *
+ * single モードでは常に '' (ルート直下の /api/... をそのまま使う)。
+ * multi モードでは現在開いているテナントに応じて '/e/<tenantId>' を設定する。
+ * テナントに属さない API (auth/me, admin/tenants, admin/system/* など) は
+ * この接頭辞を使わず、常にルート直下を叩くこと。
+ */
+let tenantPrefix = '';
+
+/** 現在のテナント接頭辞を設定する。store がルート解決のたびに呼ぶ。 */
+export function setTenantPrefix(prefix) {
+  tenantPrefix = prefix || '';
+}
+
+/** テナントに属する API のパスへ、現在の接頭辞を付与する。 */
+export function tenantPath(path) {
+  return tenantPrefix + path;
+}
+
+/**
  * 認証ヘッダ付きで fetch する。
  * ネットワークエラーは例外として呼び出し側へ伝播する。
  */

@@ -20,6 +20,13 @@
   import { enterKey } from '../lib/ime.js';
   import PostList from './PostList.svelte';
   import InlineConfirmButton from './InlineConfirmButton.svelte';
+  import MembersPanel from './MembersPanel.svelte';
+
+  // メンバー管理は multi モードの owner / システム管理者にのみ見せる。
+  // moderator や single モードでは概念自体が無いため出さない。
+  const canManageMembers = $derived(
+    store.mode === 'multi' && (store.myRole === 'owner' || store.myRole === 'system')
+  );
 
   const jetstream = $derived(store.state.jetstream || {});
   const stats = $derived(store.state.stats || {});
@@ -185,23 +192,33 @@
     <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
   </h2>
 
-  <div class="field">
-    <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
-    <div class="field-row">
-      <wa-select id="jetstream-select" bind:this={jetstreamSelectEl}>
-        {#each store.jetstreamHosts || [] as host (host)}
-          <wa-option value={host}>{host}</wa-option>
-        {/each}
-      </wa-select>
-      <wa-button variant="neutral" appearance="outlined" onclick={onJetstreamSwitch}>
-        <i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え
-      </wa-button>
+  {#if store.mode !== 'multi'}
+    <!-- マルチテナント運用では Jetstream 接続はテナント横断の共有資源であり、
+         テナント側からの切り替えはサーバー側で 403 になる (システム管理画面に集約)。
+         そのため UI 自体をここでは出さない。 -->
+    <div class="field">
+      <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
+      <div class="field-row">
+        <wa-select id="jetstream-select" bind:this={jetstreamSelectEl}>
+          {#each store.jetstreamHosts || [] as host (host)}
+            <wa-option value={host}>{host}</wa-option>
+          {/each}
+        </wa-select>
+        <wa-button variant="neutral" appearance="outlined" onclick={onJetstreamSwitch}>
+          <i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え
+        </wa-button>
+      </div>
+      <p class="field-note">
+        投稿の受信元です。すべてのウォールが 1 本の接続を共有しているため、切り替えると全画面に影響します。
+        切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
+      </p>
     </div>
+  {:else}
     <p class="field-note">
-      投稿の受信元です。すべてのウォールが 1 本の接続を共有しているため、切り替えると全画面に影響します。
-      切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
+      <i class="fa-solid fa-circle-info fa-fw" aria-hidden="true"></i>
+      マルチテナント運用では接続先の切り替えはシステム管理画面から行います。
     </p>
-  </div>
+  {/if}
 
   <div class="field">
     <label for="backfill-minutes"><i class="fa-solid fa-clock-rotate-left fa-fw" aria-hidden="true"></i> 過去の投稿を取り込む</label>
@@ -343,6 +360,10 @@
     <p class="empty-msg">ブロック中の投稿者はいません。</p>
   {/if}
 </section>
+
+{#if canManageMembers}
+  <MembersPanel />
+{/if}
 
 <!-- セッション -->
 <section class="panel">

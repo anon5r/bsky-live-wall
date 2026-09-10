@@ -6,7 +6,7 @@
  * フィールドを読み書きし、ポーリングやログイン/ログアウトなどの手続きは
  * ここに定義した関数を呼び出すだけでよい。
  */
-import { apiFetch, callAdminApi, setUnauthorizedHandler } from './api.js';
+import { apiFetch, callAdminApi, setUnauthorizedHandler, setTenantPrefix, tenantPath } from './api.js';
 
 const STORAGE_THEME_KEY = 'bsky_live_wall_admin_theme';
 const STORAGE_WALL_KEY = 'bsky_live_wall_admin_wall_id';
@@ -61,12 +61,31 @@ function effectiveTheme(theme) {
 
 export const store = $state({
   // 画面
-  page: 'login', // 'login' | 'app'
+  // 'login' | 'tenant-select' | 'forbidden' | 'system-admin' | 'app'
+  page: 'login',
   loginError: '',
   authConfig: { token: true, oauth: false },
 
   // テーマ (実際に適用されている明暗。'dark' | 'light')
   theme: effectiveTheme(loadTheme()),
+
+  // 認証・テナント (/api/auth/me 由来)
+  mode: 'single', // 'single' | 'multi'
+  did: null,
+  handle: null,
+  isSystemAdmin: false,
+  tenants: [], // 自分が操作できるテナント一覧 [{ id, name, role }]
+  tenantId: '', // 現在開いているテナント
+  myRole: null, // 現在のテナントでの自分の役割 ('owner' | 'moderator' | 'system' | null)
+  forbiddenMessage: '',
+
+  // メンバー管理 (テナントごと)
+  members: [],
+
+  // システム管理
+  systemOverview: null,
+  systemTenants: [],
+  systemAudit: [],
 
   // ウォール
   currentWallId: loadWallId(),
@@ -102,10 +121,12 @@ export const store = $state({
 let confirmHandler = null;
 let toastHideTimer = null;
 let pollTimer = null;
+let systemPollTimer = null;
 let serverStartedAt = 0;
 let pauseRequestInFlight = false;
 let sessionInfoAt = 0;
 let lastBackfillFinishedAt = 0;
+const SYSTEM_POLL_INTERVAL_MS = 5000;
 
 // ==========================================================
 // テーマ
@@ -190,6 +211,7 @@ export function confirmCancel() {
 
 function handleUnauthorized() {
   stopPolling();
+  stopSystemPolling();
   sessionExpiresAt_reset();
   showLogin(
     store.authConfig.oauth && !store.authConfig.token
@@ -210,6 +232,111 @@ function showLogin(errorMessage) {
 
 function showApp() {
   store.page = 'app';
+}
+
+// ==========================================================
+// 経路解決 (single / multi, テナントの特定)
+// ==========================================================
+
+/**
+ * URL からテナント ID を読み取る。`/e/<tenant>/admin` の形のときだけ返す。
+ * `/admin` (テナント未指定) では null を返す。
+ */
+function parseRouteTenant() {
+  const m = location.pathname.match(/^\/e\/([^/]+)\/admin\/?$/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** `/api/auth/me` を取得して store の認証・テナント情報を更新する。 */
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/auth/me', {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'bsky-live-wall' },
+    });
+    const data = res.ok ? await res.json() : { authenticated: false };
+    store.did = data.did ?? null;
+    store.handle = data.handle ?? null;
+    store.isSystemAdmin = !!data.isSystemAdmin;
+    store.mode = data.mode || 'single';
+    store.tenants = data.tenants || [];
+    return !!data.authenticated;
+  } catch {
+    store.mode = 'single';
+    store.tenants = [];
+    return false;
+  }
+}
+
+export function showTenantSelect() {
+  stopPolling();
+  stopSystemPolling();
+  store.page = 'tenant-select';
+}
+
+function showForbidden(message) {
+  stopPolling();
+  store.forbiddenMessage = message || 'このテナントを操作する権限がありません。';
+  store.page = 'forbidden';
+}
+
+export function showSystemAdmin() {
+  stopPolling();
+  store.page = 'system-admin';
+  startSystemPolling();
+}
+
+/** テナント選択画面から呼ばれる: 選んだテナントの管理画面へ移動する。 */
+export function openTenant(id) {
+  location.href = '/e/' + encodeURIComponent(id) + '/admin';
+}
+
+/**
+ * 認証確認後の画面遷移。
+ * single: 唯一のテナントへそのまま入る。
+ * multi + URL にテナント指定あり: そのテナントを開こうとし、権限が無ければ
+ *   forbidden 画面を出す (壊れた表示にはしない)。
+ * multi + テナント指定なし: テナント選択画面を出す。
+ */
+async function routeAfterAuth(routeTenant) {
+  if (store.mode === 'single') {
+    setTenantPrefix('');
+    store.tenantId = store.tenants[0]?.id || '';
+    store.myRole = store.tenants[0]?.role || 'owner';
+    connect();
+    return;
+  }
+
+  if (!routeTenant) {
+    showTenantSelect();
+    return;
+  }
+
+  setTenantPrefix('/e/' + routeTenant);
+  store.tenantId = routeTenant;
+  const match = store.tenants.find((t) => t.id === routeTenant);
+  store.myRole = match ? match.role : null;
+
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/state'));
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showForbidden(
+        (body && body.message) ||
+          (res.status === 404
+            ? 'テナントが見つかりません。'
+            : 'このテナントを操作する権限がありません。')
+      );
+      return;
+    }
+    connect();
+  } catch {
+    showForbidden('サーバーに接続できません。');
+  }
 }
 
 function readAuthError() {
@@ -240,21 +367,28 @@ export async function init() {
     showLogin(authError);
     return;
   }
-  try {
-    const res = await apiFetch('/api/admin/state');
-    if (!res.ok) {
-      showLogin();
-      return;
-    }
-    connect();
-  } catch {
+  const routeTenant = parseRouteTenant();
+  const authenticated = await refreshMe();
+  if (!authenticated) {
     showLogin();
+    return;
   }
+  await routeAfterAuth(routeTenant);
 }
 
 function connect() {
   showApp();
   startPolling();
+}
+
+/**
+ * ログイン成功後の共通処理。/api/auth/me を取り直してから経路解決する。
+ * トークンログインは single/multi どちらでも直リンクのテナントを尊重する。
+ */
+async function afterLogin() {
+  const routeTenant = parseRouteTenant();
+  await refreshMe();
+  await routeAfterAuth(routeTenant);
 }
 
 export async function submitTokenLogin(token) {
@@ -273,7 +407,7 @@ export async function submitTokenLogin(token) {
     }
     const data = await res.json();
     store.sessionExpiresAt = data.expiresAt || 0;
-    connect();
+    await afterLogin();
     return true;
   } catch {
     showLogin('サーバーに接続できません');
@@ -304,6 +438,7 @@ export async function oauthLogin(handle) {
 
 export async function logout() {
   stopPolling();
+  stopSystemPolling();
   try {
     await apiFetch('/api/admin/session', { method: 'DELETE' });
   } catch {
@@ -345,7 +480,7 @@ export async function fetchState() {
   const requestedWallId = store.currentWallId;
   const query = requestedWallId ? '?wall=' + encodeURIComponent(requestedWallId) : '';
   try {
-    const res = await apiFetch('/api/admin/state' + query);
+    const res = await apiFetch(tenantPath('/api/admin/state') + query);
     if (res.status === 401) {
       handleUnauthorized();
       return;
@@ -484,7 +619,7 @@ export async function createWall(name, terms) {
     return false;
   }
   try {
-    const res = await apiFetch('/api/admin/walls', {
+    const res = await apiFetch(tenantPath('/api/admin/walls'), {
       method: 'POST',
       body: JSON.stringify({
         name: trimmedName,
@@ -518,7 +653,7 @@ export async function renameWall(wall, newName) {
     return false;
   }
   try {
-    const res = await apiFetch('/api/admin/walls/' + encodeURIComponent(wall.id), {
+    const res = await apiFetch(tenantPath('/api/admin/walls/' + encodeURIComponent(wall.id)), {
       method: 'PATCH',
       body: JSON.stringify({ name: trimmed }),
     });
@@ -539,7 +674,7 @@ export async function renameWall(wall, newName) {
 export function requestDeleteWall(wall) {
   openConfirm('ウォール「' + wall.name + '」を削除します。よろしいですか？ 表示中の投稿もすべて失われます。', async () => {
     try {
-      const res = await apiFetch('/api/admin/walls/' + encodeURIComponent(wall.id), { method: 'DELETE' });
+      const res = await apiFetch(tenantPath('/api/admin/walls/' + encodeURIComponent(wall.id)), { method: 'DELETE' });
       if (res.status === 401) {
         handleUnauthorized();
         return;
@@ -576,7 +711,7 @@ export function parseTermInput(raw, isKeyword) {
 export async function saveTerms(terms, successMessage) {
   const payload = terms.map((t) => ({ value: t.value, type: t.type }));
   try {
-    await callAdminApi('/api/admin/terms', { terms: payload, wall: store.currentWallId || undefined });
+    await callAdminApi(tenantPath('/api/admin/terms'), { terms: payload, wall: store.currentWallId || undefined });
     showToast(successMessage);
     await fetchState();
     return true;
@@ -623,7 +758,7 @@ export function requestRemoveTerm(term) {
 
 export async function approvePost(uri) {
   try {
-    await callAdminApi('/api/admin/approve', { uri, wall: store.currentWallId || undefined });
+    await callAdminApi(tenantPath('/api/admin/approve'), { uri, wall: store.currentWallId || undefined });
     await fetchState();
   } catch {
     showToast('承認に失敗しました');
@@ -632,7 +767,7 @@ export async function approvePost(uri) {
 
 export async function hidePost(uri) {
   try {
-    await callAdminApi('/api/admin/hide', { uri });
+    await callAdminApi(tenantPath('/api/admin/hide'), { uri });
     await fetchState();
   } catch {
     showToast('非表示処理に失敗しました');
@@ -641,7 +776,7 @@ export async function hidePost(uri) {
 
 export async function unhidePost(uri) {
   try {
-    await callAdminApi('/api/admin/unhide', { uri });
+    await callAdminApi(tenantPath('/api/admin/unhide'), { uri });
     await fetchState();
   } catch {
     showToast('復元に失敗しました');
@@ -650,7 +785,7 @@ export async function unhidePost(uri) {
 
 export async function blockActor(did) {
   try {
-    await callAdminApi('/api/admin/block', { did });
+    await callAdminApi(tenantPath('/api/admin/block'), { did });
     await fetchState();
   } catch {
     showToast('ブロックに失敗しました');
@@ -659,7 +794,7 @@ export async function blockActor(did) {
 
 export async function unblockActor(did) {
   try {
-    await callAdminApi('/api/admin/unblock', { did });
+    await callAdminApi(tenantPath('/api/admin/unblock'), { did });
     await fetchState();
   } catch {
     showToast('ブロック解除に失敗しました');
@@ -668,7 +803,7 @@ export async function unblockActor(did) {
 
 export async function clearAll() {
   try {
-    await callAdminApi('/api/admin/clear', { wall: store.currentWallId || undefined });
+    await callAdminApi(tenantPath('/api/admin/clear'), { wall: store.currentWallId || undefined });
     await fetchState();
   } catch {
     showToast('全消去に失敗しました');
@@ -683,7 +818,7 @@ export async function togglePause(nextPaused) {
   if (pauseRequestInFlight) return;
   pauseRequestInFlight = true;
   try {
-    await callAdminApi('/api/admin/pause', { paused: nextPaused });
+    await callAdminApi(tenantPath('/api/admin/pause'), { paused: nextPaused });
     store.state = { ...store.state, paused: nextPaused };
   } catch {
     showToast('一時停止の切り替えに失敗しました');
@@ -696,7 +831,7 @@ export async function togglePause(nextPaused) {
 export async function switchJetstream(host) {
   if (!host) return;
   try {
-    await callAdminApi('/api/admin/jetstream', { host });
+    await callAdminApi(tenantPath('/api/admin/jetstream'), { host });
     showToast('接続先を切り替えました: ' + host);
     await fetchState();
   } catch {
@@ -712,7 +847,7 @@ export async function runBackfill(minutes, useCurrentWallOnly) {
   const body = { minutes };
   if (useCurrentWallOnly && store.currentWallId) body.wall = store.currentWallId;
   try {
-    await callAdminApi('/api/admin/backfill', body);
+    await callAdminApi(tenantPath('/api/admin/backfill'), body);
     showToast('取り込みを開始しました');
     await fetchState();
     return true;
@@ -723,7 +858,7 @@ export async function runBackfill(minutes, useCurrentWallOnly) {
 }
 
 export async function loadAvailableModlists(actor) {
-  const path = '/api/admin/modlists/available' + (actor ? '?actor=' + encodeURIComponent(actor) : '');
+  const path = tenantPath('/api/admin/modlists/available') + (actor ? '?actor=' + encodeURIComponent(actor) : '');
   try {
     const res = await apiFetch(path);
     if (res.status === 401) {
@@ -744,7 +879,7 @@ export async function loadAvailableModlists(actor) {
 
 export async function subscribeModlist(uri) {
   try {
-    const res = await callAdminApi('/api/admin/modlists', { uri });
+    const res = await callAdminApi(tenantPath('/api/admin/modlists'), { uri });
     const data = await res.json();
     showToast('購読しました (' + data.info.memberCount + ' 件 / 取り下げ ' + data.removed + ' 件)');
     await fetchState();
@@ -757,7 +892,7 @@ export async function subscribeModlist(uri) {
 
 export async function unsubscribeModlist(uri) {
   try {
-    const res = await apiFetch('/api/admin/modlists', {
+    const res = await apiFetch(tenantPath('/api/admin/modlists'), {
       method: 'DELETE',
       body: JSON.stringify({ uri }),
     });
@@ -769,4 +904,251 @@ export async function unsubscribeModlist(uri) {
     showToast('購読解除に失敗しました');
   }
   await fetchState();
+}
+
+// ==========================================================
+// メンバー管理 (テナントごと。owner とシステム管理者のみ画面に出す)
+// ==========================================================
+
+export async function loadMembers() {
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/members'));
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) {
+      store.members = [];
+      return;
+    }
+    const data = await res.json();
+    store.members = data.members || [];
+  } catch {
+    showToast('メンバー一覧を取得できませんでした');
+  }
+}
+
+export async function addMember(actor, role) {
+  const trimmed = (actor || '').trim();
+  if (!trimmed) {
+    showToast('ハンドルまたは DID を入力してください');
+    return false;
+  }
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/members'), {
+      method: 'POST',
+      body: JSON.stringify({ actor: trimmed, role }),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      // サーバーのメッセージ (例: オーナーが 0 人になる、など) をそのまま見せる。
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || 'メンバーを追加できませんでした');
+      return false;
+    }
+    showToast('メンバーを追加しました');
+    await loadMembers();
+    return true;
+  } catch {
+    showToast('メンバーを追加できませんでした');
+    return false;
+  }
+}
+
+export async function updateMemberRole(did, role) {
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/members/' + encodeURIComponent(did)), {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || '役割を変更できませんでした');
+      return false;
+    }
+    showToast('役割を変更しました');
+    await loadMembers();
+    return true;
+  } catch {
+    showToast('役割を変更できませんでした');
+    return false;
+  }
+}
+
+export function requestRemoveMember(member) {
+  openConfirm('メンバー「' + member.handle + '」を削除します。よろしいですか？', async () => {
+    try {
+      const res = await apiFetch(tenantPath('/api/admin/members/' + encodeURIComponent(member.did)), {
+        method: 'DELETE',
+      });
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        showToast((body && body.message) || 'メンバーを削除できませんでした');
+        return;
+      }
+      showToast('メンバーを削除しました');
+      await loadMembers();
+    } catch {
+      showToast('メンバーを削除できませんでした');
+    }
+  });
+}
+
+// ==========================================================
+// システム管理 (multi のみ。isSystemAdmin だけが実行できる)
+// ==========================================================
+// このセクションの API はすべてテナントに属さない (常にルート直下)。
+// tenantPath() を使わないこと。
+
+export function startSystemPolling() {
+  stopSystemPolling();
+  loadSystemOverview();
+  loadSystemTenants();
+  systemPollTimer = setInterval(() => {
+    loadSystemOverview();
+    loadSystemTenants();
+  }, SYSTEM_POLL_INTERVAL_MS);
+}
+
+export function stopSystemPolling() {
+  if (systemPollTimer) {
+    clearInterval(systemPollTimer);
+    systemPollTimer = null;
+  }
+}
+
+export async function loadSystemOverview() {
+  try {
+    const res = await apiFetch('/api/admin/system/overview');
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) return;
+    store.systemOverview = await res.json();
+  } catch {
+    // 無視。次のポーリングで再取得を試みる。
+  }
+}
+
+export async function loadSystemTenants() {
+  try {
+    const res = await apiFetch('/api/admin/system/tenants');
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    store.systemTenants = data.tenants || [];
+  } catch {
+    // 無視。次のポーリングで再取得を試みる。
+  }
+}
+
+export async function loadSystemAudit() {
+  try {
+    const res = await apiFetch('/api/admin/system/audit');
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    store.systemAudit = data.entries || [];
+  } catch {
+    showToast('監査ログを取得できませんでした');
+  }
+}
+
+export async function createSystemTenant(id, name, ownerActor) {
+  const trimmedId = (id || '').trim();
+  const trimmedName = (name || '').trim();
+  const trimmedOwner = (ownerActor || '').trim();
+  if (!trimmedId || !trimmedName || !trimmedOwner) {
+    showToast('ID / 名前 / オーナーをすべて入力してください');
+    return false;
+  }
+  try {
+    const res = await apiFetch('/api/admin/system/tenants', {
+      method: 'POST',
+      body: JSON.stringify({ id: trimmedId, name: trimmedName, ownerActor: trimmedOwner }),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || 'テナントを作成できませんでした');
+      return false;
+    }
+    showToast('テナント「' + trimmedName + '」を作成しました');
+    await loadSystemTenants();
+    await loadSystemOverview();
+    return true;
+  } catch {
+    showToast('テナントを作成できませんでした');
+    return false;
+  }
+}
+
+export function requestDeleteSystemTenant(tenant) {
+  openConfirm(
+    'テナント「' + tenant.name + '」を削除します。ウォールと投稿もすべて失われます。よろしいですか？',
+    async () => {
+      try {
+        const res = await apiFetch('/api/admin/system/tenants/' + encodeURIComponent(tenant.id), {
+          method: 'DELETE',
+        });
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        if (!res.ok) {
+          showToast('削除に失敗しました');
+          return;
+        }
+        showToast('テナント「' + tenant.name + '」を削除しました');
+        await loadSystemTenants();
+        await loadSystemOverview();
+      } catch {
+        showToast('削除に失敗しました');
+      }
+    }
+  );
+}
+
+export async function switchSystemJetstream(host) {
+  if (!host) return;
+  try {
+    const res = await apiFetch('/api/admin/system/jetstream', {
+      method: 'POST',
+      body: JSON.stringify({ host }),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || '切り替えに失敗しました');
+      return;
+    }
+    showToast('接続先を切り替えました: ' + host);
+    await loadSystemOverview();
+  } catch {
+    showToast('切り替えに失敗しました');
+  }
 }
