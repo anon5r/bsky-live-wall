@@ -54,8 +54,14 @@ export class SingleTenantRegistry implements TenantRegistry {
   readonly hub: IngestHub;
   private readonly runtime: WallManager;
 
-  constructor(config: AppConfig) {
-    this.hub = createIngestHub(config);
+  /**
+   * hub を差し替えられるようにしてある。
+   * 将来 Jetstream 接続を別プロセス (デーモン) へ出す場合、
+   * IngestHub を実装した遠隔版を渡すだけで済み、
+   * テナントやウォールの実装には手を入れずに済む。
+   */
+  constructor(config: AppConfig, hub?: IngestHub) {
+    this.hub = hub ?? createIngestHub(config);
     const now = Date.now();
     const tenant: Tenant = {
       id: config.event.id,
@@ -114,8 +120,12 @@ export class MultiTenantRegistry implements TenantRegistry {
   private readonly store: TenantStore;
   private readonly runtimes = new Map<string, WallManager>();
 
-  constructor(private readonly config: AppConfig) {
-    this.hub = createIngestHub(config);
+  /** hub の差し替えは SingleTenantRegistry と同じ理由による。 */
+  constructor(
+    private readonly config: AppConfig,
+    hub?: IngestHub
+  ) {
+    this.hub = hub ?? createIngestHub(config);
     this.store = createSqliteTenantStore(config.tenancy.dataFile);
   }
 
@@ -194,6 +204,6 @@ export class MultiTenantRegistry implements TenantRegistry {
 }
 
 /** `config.tenancy.mode` に応じて適切な実装を選ぶ。 */
-export function createTenantRegistry(config: AppConfig): TenantRegistry {
-  return config.tenancy.mode === 'multi' ? new MultiTenantRegistry(config) : new SingleTenantRegistry(config);
+export function createTenantRegistry(config: AppConfig, hub?: IngestHub): TenantRegistry {
+  return config.tenancy.mode === 'multi' ? new MultiTenantRegistry(config, hub) : new SingleTenantRegistry(config, hub);
 }
