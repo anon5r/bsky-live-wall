@@ -7,11 +7,18 @@
  *   3. DID を許可リストと照合し、通れば管理セッション Cookie を発行する
  *
  * OAuth は本人確認までしか担わない。管理してよいかは許可リストで決める。
+ *
+ * ここで登録するのはテナントに属さない経路のみ (`/api/auth/*`、
+ * `/client-metadata.json`)。許可リストの一覧・再読み込み (`/api/admin/actors*`) は
+ * テナントに属する API として `registerActorsRoutes` (下) が別に登録する
+ * (この関数が返す `OAuthRuntime` を介して許可リストの状態を共有する)。
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { NodeOAuthClient } from '@atproto/oauth-client-node';
 import type { AppConfig } from '../../shared/config.js';
 import { createLogger } from '../../shared/logger.js';
+import { checkTenantPermission } from '../permission.js';
+import { getTenant } from '../tenant-context.js';
 import { AdminSessionStore, SESSION_COOKIE } from '../admin-session.js';
 import {
   CALLBACK_PATH,
@@ -24,6 +31,12 @@ import {
 
 const log = createLogger('oauth-routes');
 
+/** 許可リストの状態を、テナントスコープの actors ルートと共有するための窓口。 */
+export interface OAuthRuntime {
+  listAllowed(): AllowedActor[];
+  reloadActors(): Promise<{ allowed: AllowedActor[]; revoked: number }>;
+}
+
 /** ハンドルの形式を軽く検証する。厳密な解決はライブラリに任せる。 */
 function looksLikeActor(input: string): boolean {
   if (input.startsWith('did:')) return input.length <= 256;
@@ -34,7 +47,7 @@ export async function registerOAuthRoutes(
   app: FastifyInstance,
   config: AppConfig,
   sessions: AdminSessionStore
-): Promise<void> {
+): Promise<OAuthRuntime | undefined> {
   const enabled = config.admin.authMode === 'oauth' || config.admin.authMode === 'both';
 
   // 認証方式は管理画面の初期表示に必要なため、無効でも問い合わせに答える。
@@ -45,7 +58,7 @@ export async function registerOAuthRoutes(
     })
   );
 
-  if (!enabled) return;
+  if (!enabled) return undefined;
 
   let client: NodeOAuthClient;
   try {
@@ -114,19 +127,50 @@ export async function registerOAuthRoutes(
     }
   });
 
-  // 許可リストはイベント中に編集され得る。管理画面から再読み込みできるようにする。
-  app.post('/api/admin/actors/reload', async (_request, reply) => {
-    const previous = new Set(allowed.keys());
-    allowed = await resolveAllowedActors(config);
-    // 外されたアカウントのセッションは即座に失効させる。
-    let revoked = 0;
-    for (const did of previous) {
-      if (!allowed.has(did)) revoked += sessions.revokeByDid(did);
-    }
-    return reply.send({ allowed: [...allowed.values()], revoked });
+  // 許可リストの一覧・再読み込みは `/api/admin/actors*` として別途テナント
+  // スコープに登録する (`registerActorsRoutes`)。ここでは状態を共有するだけ。
+  return {
+    listAllowed: () => [...allowed.values()],
+    reloadActors: async () => {
+      const previous = new Set(allowed.keys());
+      allowed = await resolveAllowedActors(config);
+      // 外されたアカウントのセッションは即座に失効させる。
+      let revoked = 0;
+      for (const did of previous) {
+        if (!allowed.has(did)) revoked += sessions.revokeByDid(did);
+      }
+      return { allowed: [...allowed.values()], revoked };
+    },
+  };
+}
+
+/**
+ * `/api/admin/actors` (一覧) / `/api/admin/actors/reload` (再読み込み)。
+ * テナントに属する管理 API として登録する (権限判定のため)。
+ * `oauth` が無効、または OAuth 自体が無効な構成では登録しない
+ * (呼び出し側が `runtime` が `undefined` かどうかで判断する)。
+ *
+ * 再読み込みは許可リストという「設定」を書き換える操作のため owner 限定。
+ * 一覧の閲覧は運用上の確認によく使うため moderator でも可とする。
+ */
+export function registerActorsRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  sessions: AdminSessionStore,
+  runtime: OAuthRuntime
+): void {
+  app.get('/api/admin/actors', async (request: FastifyRequest, reply: FastifyReply) => {
+    const tenant = getTenant(request);
+    const denial = checkTenantPermission(config, sessions, request, tenant, 'moderator');
+    if (denial) return reply.code(denial.status).send(denial.body);
+    return reply.send({ allowed: runtime.listAllowed() });
   });
 
-  app.get('/api/admin/actors', async (_request, reply) =>
-    reply.send({ allowed: [...allowed.values()] })
-  );
+  app.post('/api/admin/actors/reload', async (request: FastifyRequest, reply: FastifyReply) => {
+    const tenant = getTenant(request);
+    const denial = checkTenantPermission(config, sessions, request, tenant, 'owner');
+    if (denial) return reply.code(denial.status).send(denial.body);
+    const result = await runtime.reloadActors();
+    return reply.send(result);
+  });
 }

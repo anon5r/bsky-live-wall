@@ -1,98 +1,31 @@
 /**
- * 運営用管理 API。
+ * 運営用管理 API (テナントに属するもの)。
  *
- * 認証は 2 経路。
- * - **セッション Cookie** (管理画面が使う): ログイン時に一度だけトークンを検証し、
- *   HttpOnly Cookie でセッション ID を渡す。トークンをブラウザに保存しない。
- * - **Bearer トークン** (スクリプト・監視用): `Authorization: Bearer <ADMIN_TOKEN>`。
+ * 認証は `admin-auth.ts` の `createAdminAuth` に一本化してある
+ * (セッション Cookie / Bearer トークン / トークン未設定時の loopback 例外)。
  *
- * `ADMIN_TOKEN` が空文字の場合は loopback アドレスからのアクセスのみ許可する。
- * ただし `TRUST_PROXY=true` (リバースプロキシ配下) では、リモートの利用者が
- * プロキシの loopback アドレスとして見えるため、この例外を無効化しトークンを必須とする。
+ * multi モードでは認証に加えて「そのテナントのメンバーか」も確認する
+ * (`permission.ts` の `checkTenantPermission`)。認証さえ通れば他人のテナントを
+ * 操作できてしまうのを防ぐため。single モードでは従来どおりメンバーの概念を使わない。
  */
-import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppConfig } from '../../shared/config.js';
-import type { WallSource } from '../../shared/contracts.js';
+import type { TenantRuntime } from '../../shared/ingest-contracts.js';
 import { createLogger } from '../../shared/logger.js';
+import { AdminSessionStore, SESSION_COOKIE, readCookie, safeEqual } from '../admin-session.js';
 import {
-  AdminSessionStore,
-  SESSION_COOKIE,
-  readCookie,
-  safeEqual,
-} from '../admin-session.js';
+  badRequest,
+  createAdminAuth,
+  isRateLimited,
+  recordAuthFailure,
+  routePath,
+  tooManyRequests,
+  unauthorized,
+} from '../admin-auth.js';
+import { checkTenantPermission } from '../permission.js';
+import { getTenant } from '../tenant-context.js';
 
 const logger = createLogger('admin');
-
-/**
- * 認証判定に使う経路を返す。
- *
- * これらのルートは `/api/...` と `/e/<eventId>/api/...` の両方に登録されるため、
- * `request.url` の前方一致で判定すると、プレフィックス付きの経路が
- * 認証ガードを素通りしてしまう。登録時のルートパターンを優先して使う。
- */
-function routePath(request: FastifyRequest): string {
-  const pattern = request.routeOptions?.url;
-  if (typeof pattern === 'string' && pattern !== '') return pattern;
-  return request.url.split('?')[0] ?? '';
-}
-
-/** リモートアドレスが loopback (127.0.0.1 / ::1 / ::ffff:127.0.0.1) かどうか判定する。 */
-function isLoopback(ip: string): boolean {
-  const normalized = ip.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1' || ip === '::1';
-}
-
-/** 定数時間比較でトークンを検証する。長さが異なる場合は即座に false。 */
-function tokenMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-/** 認証失敗の総当たり対策。IP ごとに失敗回数を数える。 */
-const AUTH_FAIL_WINDOW_MS = 5 * 60_000;
-const AUTH_FAIL_LIMIT = 10;
-const authFailures = new Map<string, { count: number; resetAt: number }>();
-
-function recordAuthFailure(ip: string): void {
-  const now = Date.now();
-  const entry = authFailures.get(ip);
-  if (!entry || entry.resetAt <= now) {
-    authFailures.set(ip, { count: 1, resetAt: now + AUTH_FAIL_WINDOW_MS });
-    return;
-  }
-  entry.count += 1;
-  // 際限なく増えないよう、期限切れのエントリを間引く。
-  if (authFailures.size > 1000) {
-    for (const [key, value] of authFailures) {
-      if (value.resetAt <= now) authFailures.delete(key);
-    }
-  }
-}
-
-function isRateLimited(ip: string): boolean {
-  const entry = authFailures.get(ip);
-  if (!entry) return false;
-  if (entry.resetAt <= Date.now()) {
-    authFailures.delete(ip);
-    return false;
-  }
-  return entry.count >= AUTH_FAIL_LIMIT;
-}
-
-function tooManyRequests(reply: FastifyReply): FastifyReply {
-  return reply.code(429).send({ error: 'too_many_requests' });
-}
-
-function unauthorized(reply: FastifyReply): FastifyReply {
-  return reply.code(401).send({ error: 'unauthorized' });
-}
-
-function badRequest(reply: FastifyReply, message: string): FastifyReply {
-  return reply.code(400).send({ error: 'bad_request', message });
-}
 
 /** 監査ログ。誰がいつ何をしたかを追えるようにする。 */
 const AUDIT_LIMIT = 200;
@@ -155,23 +88,30 @@ function recordAudit(
 }
 
 /** `?wall=` / body.wall からウォールを解決する。省略時は既定ウォール。 */
-function pickWall(source: WallSource, id: unknown) {
-  return typeof id === 'string' && id !== '' ? source.getWall(id) : source.getDefaultWall();
+function pickWall(tenant: TenantRuntime, id: unknown) {
+  return typeof id === 'string' && id !== '' ? tenant.getWall(id) : tenant.getDefaultWall();
 }
 
 function wallNotFound(reply: FastifyReply): FastifyReply {
   return reply.code(404).send({ error: 'wall_not_found' });
 }
 
-export function registerAdminRoutes(
+/**
+ * セッション管理 (ログイン / ログアウト / 一覧 / 監査ログ)。
+ *
+ * これらはテナントに属さない (どのテナントの管理者かに関わらず、ログイン機構は
+ * サーバー全体で 1 つ)。`createServer` からルート直下にのみ登録する。
+ */
+export function registerAdminSessionRoutes(
   app: FastifyInstance,
   config: AppConfig,
-  source: WallSource,
   sessions: AdminSessionStore,
 ): void {
   /** トークンによるログイン・Bearer 認証が有効か。 */
   const tokenAuthEnabled =
     config.admin.authMode === 'token' || config.admin.authMode === 'both';
+  const adminAuth = createAdminAuth(config, sessions);
+
   /**
    * ログイン不要で通してよい経路 (ログイン API 自身のみ)。
    * startsWith にすると /api/admin/sessions/revoke-all まで素通りするため、
@@ -181,62 +121,10 @@ export function registerAdminRoutes(
     return routePath(request).endsWith('/api/admin/session') && request.method === 'POST';
   };
 
-  const adminAuth = (request: FastifyRequest, reply: FastifyReply): void => {
-    const token = config.admin.token;
-    const ip = request.ip;
-
-    if (isRateLimited(ip)) {
-      logger.warn('管理 API の認証失敗が続いたため一時的に拒否', { ip });
-      tooManyRequests(reply);
-      return;
-    }
-
-    // 1. セッション Cookie。トークンログイン・OAuth ログインの両方がこれを使う。
-    const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
-    if (session) {
-      // Cookie 認証は CSRF の対象になる。SameSite に加えて、
-      // クロスオリジンからは付与できないカスタムヘッダを状態変更操作に要求する。
-      if (request.method !== 'GET' && request.headers['x-requested-with'] !== 'bsky-live-wall') {
-        badRequest(reply, 'X-Requested-With ヘッダが必要です');
-      }
-      return;
-    }
-
-    // 2. これ以降はトークンによる認証。AUTH_MODE=oauth では一切認めない。
-    //    loopback 例外もトークン方式の利便機能であり、OAuth 専用モードでは適用しない。
-    if (!tokenAuthEnabled) {
-      recordAuthFailure(ip);
-      unauthorized(reply);
-      return;
-    }
-
-    // 3. トークン未設定時の loopback 例外 (会場 PC での単独運用向け)。
-    //    プロキシ配下ではリモートの利用者も loopback に見えるため無効化する。
-    if (token === '') {
-      if (config.server.trustProxy) {
-        // 起動時に弾いているはずだが二重に防ぐ。
-        logger.error('TRUST_PROXY=true では ADMIN_TOKEN が必須です');
-        unauthorized(reply);
-        return;
-      }
-      if (!isLoopback(ip)) {
-        logger.warn('loopback 以外からの管理 API アクセスを拒否', { ip });
-        recordAuthFailure(ip);
-        unauthorized(reply);
-      }
-      return;
-    }
-
-    // 4. Bearer トークン (スクリプト・監視用)
-    const header = request.headers.authorization ?? '';
-    const match = /^Bearer (.+)$/.exec(header);
-    if (!match || !match[1] || !tokenMatches(match[1], token)) {
-      recordAuthFailure(ip);
-      unauthorized(reply);
-    }
-  };
-
   app.addHook('preHandler', (request, reply, done) => {
+    // このフックは `app` に直接登録するため、ここで対象を絞らないと
+    // 同じインスタンスに登録された他の経路 (ヘルスチェック等) にまで
+    // 認証がかかってしまう。
     if (!routePath(request).includes('/api/admin')) {
       done();
       return;
@@ -248,8 +136,6 @@ export function registerAdminRoutes(
     adminAuth(request, reply);
     done();
   });
-
-  // ---- セッション ----
 
   app.post<{ Body: { token?: unknown } }>('/api/admin/session', async (request, reply) => {
     const ip = request.ip;
@@ -271,7 +157,7 @@ export function registerAdminRoutes(
     // ここへ到達している時点で loopback からのアクセスであることは
     // preHandler より前の isLoginRoute 経路で保証されないため、改めて判定する。
     if (configured === '') {
-      if (config.server.trustProxy || !isLoopback(ip)) {
+      if (config.server.trustProxy) {
         recordAuthFailure(ip);
         return unauthorized(reply);
       }
@@ -329,19 +215,63 @@ export function registerAdminRoutes(
   app.get('/api/admin/audit', async (_request, reply) => {
     return reply.send({ entries: auditLog });
   });
+}
+
+/**
+ * テナントに属する管理 API (状態表示・モデレーション操作・ウォール管理など)。
+ * `createServer` がテナント解決フックの内側 (ルート直下 / `/e/:eventId` の両方) から
+ * 登録する。
+ */
+export function registerAdminRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  sessions: AdminSessionStore,
+): void {
+  const adminAuth = createAdminAuth(config, sessions);
+
+  app.addHook('preHandler', (request, reply, done) => {
+    // このインスタンスには `/api/stream`・`/api/posts`・`/api/walls` など
+    // 認証不要な経路も同居しているため、`/api/admin` 配下だけに絞る。
+    if (!routePath(request).includes('/api/admin')) {
+      done();
+      return;
+    }
+    adminAuth(request, reply);
+    done();
+  });
+
+  /**
+   * テナントのメンバーであることを要求する。multi モードのみ判定する
+   * (single は従来どおり)。拒否ならレスポンスを送信して true を返す。
+   */
+  const requireRole = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    tenant: TenantRuntime,
+    required: 'owner' | 'moderator'
+  ): boolean => {
+    const denial = checkTenantPermission(config, sessions, request, tenant, required);
+    if (denial) {
+      reply.code(denial.status).send(denial.body);
+      return true;
+    }
+    return false;
+  };
 
   // ---- 状態と操作 ----
 
   app.get<{ Querystring: { wall?: string } }>('/api/admin/state', async (request, reply) => {
-    const wall = pickWall(source, request.query.wall);
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    const wall = pickWall(tenant, request.query.wall);
     if (!wall) return wallNotFound(reply);
     const state = wall.getState();
     const recent = wall.getRecent(config.buffer.backlogSize);
     const pending = wall.getPending(config.buffer.backlogSize);
-    const hidden = source.getHidden(config.buffer.backlogSize);
-    const blocked = source.getBlockedActors();
-    const modLists = source.getModLists();
-    const jetstreamHosts = source.getJetstreamHosts();
+    const hidden = tenant.getHidden(config.buffer.backlogSize);
+    const blocked = tenant.getBlockedActors();
+    const modLists = tenant.getModLists();
+    const jetstreamHosts = tenant.getJetstreamHosts();
     return reply.send({
       state,
       recent,
@@ -350,48 +280,56 @@ export function registerAdminRoutes(
       blocked,
       modLists,
       jetstreamHosts,
-      backfill: source.getBackfillStatus(),
-      walls: source.getWalls(),
+      backfill: tenant.getBackfillStatus(),
+      walls: tenant.getWalls(),
     });
   });
 
   app.post<{ Body: { paused?: unknown } }>('/api/admin/pause', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { paused } = request.body ?? {};
     if (typeof paused !== 'boolean') {
       return badRequest(reply, 'paused は boolean で指定してください');
     }
     recordAudit('pause', String(paused), request, undefined, sessions);
-    source.setPaused(paused);
-    const state = source.getDefaultWall().getState();
+    tenant.setPaused(paused);
+    const state = tenant.getDefaultWall().getState();
     return reply.send({ state });
   });
 
   app.post<{ Body: { uri?: unknown } }>('/api/admin/hide', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
     recordAudit('hide', uri, request, undefined, sessions);
-    const ok = source.hide(uri);
+    const ok = tenant.hide(uri);
     return reply.send({ ok });
   });
 
   app.post<{ Body: { uri?: unknown } }>('/api/admin/unhide', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
     recordAudit('unhide', uri, request, undefined, sessions);
-    const ok = source.unhide(uri);
+    const ok = tenant.unhide(uri);
     return reply.send({ ok });
   });
 
   app.post<{ Body: { uri?: unknown } }>('/api/admin/approve', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
-    const wall = pickWall(source, (request.body as { wall?: unknown } | undefined)?.wall);
+    const wall = pickWall(tenant, (request.body as { wall?: unknown } | undefined)?.wall);
     if (!wall) return wallNotFound(reply);
     recordAudit('approve', uri, request, undefined, sessions);
     const ok = wall.approve(uri);
@@ -399,34 +337,43 @@ export function registerAdminRoutes(
   });
 
   app.post<{ Body: { did?: unknown } }>('/api/admin/block', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { did } = request.body ?? {};
     if (typeof did !== 'string' || did === '') {
       return badRequest(reply, 'did は空でない文字列で指定してください');
     }
     recordAudit('block', did, request, undefined, sessions);
-    const removed = source.blockActor(did);
+    const removed = tenant.blockActor(did);
     return reply.send({ removed });
   });
 
   app.post<{ Body: { did?: unknown } }>('/api/admin/unblock', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { did } = request.body ?? {};
     if (typeof did !== 'string' || did === '') {
       return badRequest(reply, 'did は空でない文字列で指定してください');
     }
     recordAudit('unblock', did, request, undefined, sessions);
-    const restored = source.unblockActor(did);
+    const restored = tenant.unblockActor(did);
     return reply.send({ restored });
   });
 
   // ---- ウォール ----
 
-  app.get('/api/admin/walls', async (_request, reply) =>
-    reply.send({ walls: source.getWalls() })
-  );
+  app.get('/api/admin/walls', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    return reply.send({ walls: tenant.getWalls() });
+  });
 
   app.post<{ Body: { id?: unknown; name?: unknown; terms?: unknown } }>(
     '/api/admin/walls',
     async (request, reply) => {
+      const tenant = getTenant(request);
+      // ウォールの作成はテナント構成の変更にあたるため owner 限定。
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const { id, name, terms } = request.body ?? {};
       if (typeof name !== 'string' || name.trim() === '') {
         return badRequest(reply, 'name は空でない文字列で指定してください');
@@ -438,7 +385,7 @@ export function registerAdminRoutes(
       if (typeof parsed === 'string') return badRequest(reply, parsed);
 
       try {
-        const created = source.createWall({
+        const created = tenant.createWall({
           ...(typeof id === 'string' && id !== '' ? { id } : {}),
           name,
           terms: parsed,
@@ -454,11 +401,14 @@ export function registerAdminRoutes(
   app.patch<{ Params: { id: string }; Body: { name?: unknown; display?: unknown } }>(
     '/api/admin/walls/:id',
     async (request, reply) => {
+      const tenant = getTenant(request);
+      // 改名もテナント構成の変更にあたるため owner 限定。
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const { name, display } = request.body ?? {};
       if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
         return badRequest(reply, 'name は空でない文字列で指定してください');
       }
-      const updated = source.updateWall(request.params.id, {
+      const updated = tenant.updateWall(request.params.id, {
         ...(typeof name === 'string' ? { name } : {}),
         ...(typeof display === 'object' && display !== null
           ? { display: display as Record<string, never> }
@@ -471,7 +421,10 @@ export function registerAdminRoutes(
   );
 
   app.delete<{ Params: { id: string } }>('/api/admin/walls/:id', async (request, reply) => {
-    const ok = source.deleteWall(request.params.id);
+    const tenant = getTenant(request);
+    // 削除もテナント構成の変更にあたるため owner 限定。
+    if (requireRole(request, reply, tenant, 'owner')) return;
+    const ok = tenant.deleteWall(request.params.id);
     if (!ok) {
       return badRequest(reply, '削除できません (存在しないか、既定ウォールです)');
     }
@@ -482,7 +435,9 @@ export function registerAdminRoutes(
   // ---- 監視設定 ----
 
   app.get<{ Querystring: { wall?: string } }>('/api/admin/terms', async (request, reply) => {
-    const wall = pickWall(source, request.query.wall);
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    const wall = pickWall(tenant, request.query.wall);
     if (!wall) return wallNotFound(reply);
     return reply.send({ terms: wall.getTerms() });
   });
@@ -491,44 +446,52 @@ export function registerAdminRoutes(
   app.post<{ Body: { terms?: unknown; wall?: unknown } }>(
     '/api/admin/terms',
     async (request, reply) => {
-    const wall = pickWall(source, request.body?.wall);
-    if (!wall) return wallNotFound(reply);
-    const { terms } = request.body ?? {};
-    if (!Array.isArray(terms)) {
-      return badRequest(reply, 'terms は配列で指定してください');
-    }
-    // 検証はすべて適用の前に済ませる。
-    // 途中で弾く場合でも、設定を書き換えたあとで 400 を返してはいけない。
-    const parsed = parseTerms(terms);
-    if (typeof parsed === 'string') return badRequest(reply, parsed);
+      const tenant = getTenant(request);
+      if (requireRole(request, reply, tenant, 'moderator')) return;
+      const wall = pickWall(tenant, request.body?.wall);
+      if (!wall) return wallNotFound(reply);
+      const { terms } = request.body ?? {};
+      if (!Array.isArray(terms)) {
+        return badRequest(reply, 'terms は配列で指定してください');
+      }
+      // 検証はすべて適用の前に済ませる。
+      // 途中で弾く場合でも、設定を書き換えたあとで 400 を返してはいけない。
+      const parsed = parseTerms(terms);
+      if (typeof parsed === 'string') return badRequest(reply, parsed);
 
-    const applied = wall.setTerms(parsed);
-    recordAudit(
-      'terms',
-      `${wall.id}: ${applied.map((t) => `${t.type}:${t.value}`).join(',')}`,
-      request,
-      undefined,
-      sessions
-    );
-    return reply.send({ terms: applied });
+      const applied = wall.setTerms(parsed);
+      recordAudit(
+        'terms',
+        `${wall.id}: ${applied.map((t) => `${t.type}:${t.value}`).join(',')}`,
+        request,
+        undefined,
+        sessions
+      );
+      return reply.send({ terms: applied });
     }
   );
 
-  app.get('/api/admin/jetstream', async (_request, reply) => {
-    const state = source.getDefaultWall().getState();
+  app.get('/api/admin/jetstream', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    const state = tenant.getDefaultWall().getState();
     return reply.send({
-      hosts: source.getJetstreamHosts(),
+      hosts: tenant.getJetstreamHosts(),
       current: state.jetstream.host,
       connected: state.jetstream.connected,
     });
   });
 
   app.post<{ Body: { host?: unknown } }>('/api/admin/jetstream', async (request, reply) => {
+    const tenant = getTenant(request);
+    // Jetstream 接続は全テナント共有のため、この操作は他テナントにも影響する。
+    // 影響範囲の広さに鑑みて owner 限定にする。
+    if (requireRole(request, reply, tenant, 'owner')) return;
     const { host } = request.body ?? {};
     if (typeof host !== 'string' || host === '') {
       return badRequest(reply, 'host は空でない文字列で指定してください');
     }
-    const ok = source.switchJetstreamHost(host);
+    const ok = tenant.switchJetstreamHost(host);
     if (!ok) {
       return badRequest(reply, '候補にないホストです');
     }
@@ -538,13 +501,17 @@ export function registerAdminRoutes(
 
   // ---- バックフィル (過去の取り込み) ----
 
-  app.get('/api/admin/backfill', async (_request, reply) =>
-    reply.send({ status: source.getBackfillStatus() })
-  );
+  app.get('/api/admin/backfill', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    return reply.send({ status: tenant.getBackfillStatus() });
+  });
 
   app.post<{ Body: { minutes?: unknown; wall?: unknown } }>(
     '/api/admin/backfill',
     async (request, reply) => {
+      const tenant = getTenant(request);
+      if (requireRole(request, reply, tenant, 'moderator')) return;
       const { minutes, wall } = request.body ?? {};
       if (typeof minutes !== 'number' || !Number.isFinite(minutes)) {
         return badRequest(reply, 'minutes は数値で指定してください');
@@ -552,7 +519,7 @@ export function registerAdminRoutes(
       if (wall !== undefined && typeof wall !== 'string') {
         return badRequest(reply, 'wall は文字列で指定してください');
       }
-      const result = source.startBackfill({
+      const result = tenant.startBackfill({
         minutes,
         ...(typeof wall === 'string' && wall !== '' ? { wallId: wall } : {}),
       });
@@ -566,15 +533,17 @@ export function registerAdminRoutes(
         undefined,
         sessions
       );
-      return reply.send({ ok: true, status: source.getBackfillStatus() });
+      return reply.send({ ok: true, status: tenant.getBackfillStatus() });
     }
   );
 
   // ---- モデレーションリスト ----
 
-  app.get('/api/admin/modlists', async (_request, reply) =>
-    reply.send({ subscribed: source.getModLists() })
-  );
+  app.get('/api/admin/modlists', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    return reply.send({ subscribed: tenant.getModLists() });
+  });
 
   /**
    * ログイン中のアカウント (または指定したアカウント) が持つリストを返す。
@@ -617,26 +586,32 @@ export function registerAdminRoutes(
   );
 
   app.post<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || !uri.startsWith('at://')) {
       return badRequest(reply, 'uri は at:// で始まる文字列で指定してください');
     }
     recordAudit('modlist-subscribe', uri, request, undefined, sessions);
-    const result = await source.subscribeModList(uri);
+    const result = await tenant.subscribeModList(uri);
     return reply.send(result);
   });
 
   app.delete<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
     }
     recordAudit('modlist-unsubscribe', uri, request, undefined, sessions);
-    return reply.send({ ok: source.unsubscribeModList(uri) });
+    return reply.send({ ok: tenant.unsubscribeModList(uri) });
   });
 
   app.post<{ Body: { wall?: unknown } }>('/api/admin/clear', async (request, reply) => {
-    const wall = pickWall(source, request.body?.wall);
+    const tenant = getTenant(request);
+    if (requireRole(request, reply, tenant, 'moderator')) return;
+    const wall = pickWall(tenant, request.body?.wall);
     if (!wall) return wallNotFound(reply);
     recordAudit('clear', wall.id, request, undefined, sessions);
     wall.clear();

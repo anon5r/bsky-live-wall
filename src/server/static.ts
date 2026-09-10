@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { createLogger } from '../shared/logger.js';
+import type { TenantRegistry } from '../shared/ingest-contracts.js';
 import type { TenancyMode } from '../shared/tenancy.js';
 
 const logger = createLogger('static');
@@ -59,10 +60,14 @@ export function resolvePublicDir(): string {
  *
  * イベント ID の階層は、現状 1 イベントしかなくても経路に組み込んでおく。
  * 後から挿入すると既存の URL がすべて変わってしまうため。
+ *
+ * 存在しないテナントを 404 にする判定は `registry.get(id)` の有無で行う。
+ * single モードでも registry には (`.env` 由来の) 1 件のテナントが必ずあるため、
+ * 判定はモードに関わらず同じ形で書ける。
  */
 export async function registerStatic(
   app: FastifyInstance,
-  eventId: string,
+  registry: TenantRegistry,
   mode: TenancyMode
 ): Promise<void> {
   const publicDir = resolvePublicDir();
@@ -106,7 +111,9 @@ export async function registerStatic(
     request: { params: { eventId?: string } },
     reply: FastifyReply
   ): Promise<boolean> => {
-    if (request.params.eventId === eventId) return true;
+    if (request.params.eventId !== undefined && registry.get(request.params.eventId) !== undefined) {
+      return true;
+    }
     await reply.code(404).type('text/plain; charset=utf-8').send('event not found');
     return false;
   };
@@ -135,10 +142,11 @@ export async function registerStatic(
     return reply;
   });
 
+  const defaultTenantId = registry.list()[0]?.tenantId ?? '<tenant>';
   logger.info('URL を割り当てました', {
     mode,
     wall: mode === 'single' ? '/wall' : `/e/<tenant>/wall`,
-    wallExplicit: `/e/${eventId}/wall`,
+    wallExplicit: `/e/${defaultTenantId}/wall`,
     admin: '/admin',
     assets: '/assets/',
   });

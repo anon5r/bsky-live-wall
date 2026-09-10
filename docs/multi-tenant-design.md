@@ -74,19 +74,31 @@
 | 2-a | `IngestHub` の抽出。`WallManager` から Jetstream / バックフィル / プロフィール解決を分離する | **完了** |
 | 2-b | `TenantRuntime` 化。残った `WallManager` をテナント単位にする | **完了** |
 | 2-c | `TenantRegistry`。single は `.env` から 1 件、multi は `TenantStore` から | **完了** |
-| 2-d | server 層のテナント解決。`/e/:eventId` から `TenantRuntime` を引く | |
-| 2-e | 管理 API のテナント対応と権限判定 | |
+| 2-d | server 層のテナント解決。`/e/:eventId` から `TenantRuntime` を引く | **完了** |
+| 2-e | 管理 API のテナント対応と権限判定 | **完了** |
 | 3 | 管理画面のテナント選択・メンバー管理 | |
 
 **2-a から 2-c までは単一テナントの挙動を変えないこと。** 既存の検証が
 そのまま通る状態を保ったまま内部構造だけを移す。
 
-### 2-d までの暫定的な制約
+### 2-d / 2-e で解消したこと
 
-`createWallSource(config)` は互換のために残してあり、内部では
-`registry.getDefault()` を返している。multi モードではこれが「最初のテナント」に
-なるため、server 層は 1 テナントしか見えない。テナントの解決は 2-d で入れる。
+`createServer` は `WallSource` ではなく `TenantRegistry` を受け取るようになった
+(`createWallSource` は不要になり削除)。ルートは「テナントに属する」
+(`/api/stream`・`/api/posts`・`/api/admin/state` など、ルート直下と
+`/e/:eventId/` の両方に登録) と「テナントに属さない」
+(`/api/health`・`/api/auth/*`・`/api/admin/session*`・`/api/admin/tenants*`) に
+分け、前者は `request.tenant` (`src/server/tenant-context.ts`) にテナントを
+積む `onRequest` フックを経由する。single モードのルート直下は既定テナントに、
+multi モードのルート直下は 404 (`tenant_required`) になる。
 
-このため multi モードは**テナントが 1 件も無い状態では起動できない**
-(`getDefault()` が例外を投げる)。2-d で server 層がテナントを解決するように
-なれば解消する。
+これにより multi モードは**テナントが 1 件も無い状態でも起動できる**
+(ヘルスチェックはテナント数に依存しない)。
+
+権限判定は `src/server/permission.ts` の `checkTenantPermission` で行い、
+`/api/admin/*` の各ハンドラが `TenantRuntime.getMemberRole(did)` を通して
+呼び出す。DID を伴わない Bearer トークン認証 (`ADMIN_TOKEN`) では
+「どのテナットの誰か」を特定できないため、multi モードのテナントに属する
+操作は一律で 403 にしている
+(`AUTH_MODE=both` を multi で使うこと自体は許可しているが、
+Bearer はテナントに属さない API — ヘルスチェックやセッション管理など — にしか実質的に使えない)。
