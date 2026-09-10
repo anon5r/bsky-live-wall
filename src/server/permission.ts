@@ -24,7 +24,36 @@ export interface PermissionDenial {
 }
 
 /**
+ * システム管理者 (`.env` の `SYSTEM_ADMINS`) の DID 集合。
+ *
+ * テナントの owner は「テナントのメンバー表」(DB) にしか存在しないため、
+ * テナントが 1 件も無い初期状態では誰も管理操作を行えない。システム管理者は
+ * それとは別に `.env` で持つことで、DB が空でも壊れても締め出されないようにする。
+ * ハンドルは起動時に DID へ解決してから (`resolveSystemAdmins`) ここへ渡す
+ * (`setSystemAdminDids`)。以降の判定は同期的な Set 参照で完結する。
+ */
+let systemAdminDids: ReadonlySet<string> = new Set();
+
+/** 起動時に一度だけ呼ぶ。`SYSTEM_ADMINS` を DID へ解決した結果を渡す。 */
+export function setSystemAdminDids(dids: ReadonlySet<string>): void {
+  systemAdminDids = dids;
+}
+
+/** 現在登録されているシステム管理者の DID 集合 (テスト・診断用)。 */
+export function getSystemAdminDids(): ReadonlySet<string> {
+  return systemAdminDids;
+}
+
+/** この DID がシステム管理者かどうか。システム管理者は全テナントに対して owner 相当。 */
+export function isSystemAdmin(did: string | undefined): boolean {
+  return did !== undefined && systemAdminDids.has(did);
+}
+
+/**
  * 許可されていれば `null`、拒否ならレスポンスに使う `{ status, body }` を返す。
+ *
+ * **システム管理者の扱い**: `isSystemAdmin(did)` が true なら、対象テナントの
+ * メンバーであるかに関わらず常に許可する (owner 相当)。
  *
  * **multi + Bearer トークンの扱い**: Bearer 認証には DID が無く、
  * 「誰か」を特定できない。`ADMIN_TOKEN` は全テナント共通の秘密であり、
@@ -42,6 +71,8 @@ export function checkTenantPermission(
   if (config.tenancy.mode !== 'multi') return null;
 
   const did = getAuthedDid(request, sessions);
+  if (isSystemAdmin(did)) return null;
+
   if (!did) {
     return {
       status: 403,

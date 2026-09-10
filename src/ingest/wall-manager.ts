@@ -215,6 +215,42 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
     return this.store ? this.store.getMemberRole(this.tenantId, did) : undefined;
   }
 
+  addMember(input: { did: string; handle: string; role: TenantMember['role'] }): TenantMember {
+    if (!this.store) throw new Error('単一テナント運用ではメンバー管理を使いません');
+    return this.store.addMember({ tenantId: this.tenantId, ...input });
+  }
+
+  updateMemberRole(did: string, role: TenantMember['role']): TenantMember | undefined {
+    if (!this.store) throw new Error('単一テナント運用ではメンバー管理を使いません');
+    const members = this.store.listMembers(this.tenantId);
+    const current = members.find((m) => m.did === did);
+    if (!current) return undefined;
+    // owner から降格させることで owner が 0 人になる変更は拒否する。
+    // TenantStore.addMember は upsert (無条件に role を書き換える) のため、ここで自前に守る。
+    if (current.role === 'owner' && role !== 'owner') {
+      const ownerCount = members.filter((m) => m.role === 'owner').length;
+      if (ownerCount <= 1) {
+        throw new Error('オーナーが 0 人になるため、この変更はできません');
+      }
+    }
+    return this.store.addMember({ tenantId: this.tenantId, did, handle: current.handle, role });
+  }
+
+  removeMember(did: string): boolean {
+    if (!this.store) throw new Error('単一テナント運用ではメンバー管理を使いません');
+    const target = this.store.listMembers(this.tenantId).find((m) => m.did === did);
+    if (!target) return false;
+    if (target.role === 'owner') {
+      const ownerCount = this.store.listMembers(this.tenantId).filter((m) => m.role === 'owner').length;
+      // TenantStore.removeMember 自体も同じ理由で拒否するが、ここで先に検知することで
+      // 呼び出し側 (API) が「存在しない」と「最後の owner」を区別したエラーを返せる。
+      if (ownerCount <= 1) {
+        throw new Error('オーナーが 0 人になるため削除できません');
+      }
+    }
+    return this.store.removeMember(this.tenantId, did);
+  }
+
   // ---- ライフサイクル ----
 
   /**

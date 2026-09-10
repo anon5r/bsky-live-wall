@@ -74,6 +74,21 @@ export interface TenantRuntime extends WallSource {
   listMembers(): TenantMember[];
   /** 権限判定。メンバーでなければ undefined。 */
   getMemberRole(did: string): TenantMember['role'] | undefined;
+  /**
+   * メンバーを追加する (既に居れば role/handle を更新する upsert)。
+   * single モードでは例外を投げる (メンバーの概念が無いため)。
+   */
+  addMember(input: { did: string; handle: string; role: TenantMember['role'] }): TenantMember;
+  /**
+   * 役割を変更する。対象が居なければ `undefined`。
+   * owner が 0 人になる変更 (最後の owner を moderator に降格) は例外を投げる。
+   */
+  updateMemberRole(did: string, role: TenantMember['role']): TenantMember | undefined;
+  /**
+   * メンバーを削除する。対象が居なければ `false`。
+   * 最後の owner を削除しようとした場合は例外を投げる。
+   */
+  removeMember(did: string): boolean;
 }
 
 /**

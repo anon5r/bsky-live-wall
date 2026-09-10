@@ -22,8 +22,8 @@ import { wireTenantBroadcast } from './stream.js';
 
 const logger = createLogger('tenants-routes');
 
-/** テナント ID に使える文字種。config.ts の `normalizeSlug` と同じ規則。 */
-function looksLikeValidId(id: string): boolean {
+/** テナント ID に使える文字種。config.ts の `normalizeSlug` と同じ規則。 `routes/system.ts` からも使う。 */
+export function looksLikeValidId(id: string): boolean {
   return /^[a-z0-9_-]{1,40}$/.test(id);
 }
 

@@ -161,3 +161,27 @@ export function getAuthedDid(request: FastifyRequest, sessions: AdminSessionStor
   const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
   return session?.did;
 }
+
+/**
+ * `GET /api/auth/me` 用。ログイン状態を「答える」ための判定であり、`createAdminAuth`
+ * と違って失敗を 401 にしたり、失敗回数を記録したりはしない (単なる状態確認のため)。
+ * 判定の中身は `createAdminAuth` と同じ 3 経路
+ * (セッション Cookie -> Bearer トークン -> トークン未設定時の loopback 例外)。
+ */
+export function isAdminAuthenticated(config: AppConfig, sessions: AdminSessionStore, request: FastifyRequest): boolean {
+  const session = sessions.verify(readCookie(request.headers.cookie, SESSION_COOKIE));
+  if (session) return true;
+
+  const tokenAuthEnabled = config.admin.authMode === 'token' || config.admin.authMode === 'both';
+  if (!tokenAuthEnabled) return false;
+
+  const token = config.admin.token;
+  if (token === '') {
+    if (config.server.trustProxy) return false;
+    return isLoopback(request.ip);
+  }
+
+  const header = request.headers.authorization ?? '';
+  const match = /^Bearer (.+)$/.exec(header);
+  return !!match && !!match[1] && tokenMatches(match[1], token);
+}

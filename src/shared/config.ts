@@ -88,6 +88,12 @@ export interface AppConfig {
      * OAuth で本人確認できても、ここに載っていなければ管理できない。
      */
     allowedActors: string[];
+    /**
+     * システム管理者 (ハンドルまたは DID)。全テナントに対して owner 相当の権限を持つ。
+     * テナントのメンバー表 (DB) ではなく `.env` に置く。テナントが 1 件も無い
+     * 初期状態でも管理者が存在する必要があり、DB が壊れても締め出されないため。
+     */
+    systemAdmins: string[];
   };
   oauth: {
     /** 公開 URL。client_id とリダイレクト先の組み立てに使う。 */
@@ -292,6 +298,7 @@ export function loadConfig(): AppConfig {
         ? (str('AUTH_MODE', 'token') as AuthMode)
         : 'token',
       allowedActors: list('ADMIN_ACTORS').map((a) => a.replace(/^@/, '').toLowerCase()),
+      systemAdmins: list('SYSTEM_ADMINS').map((a) => a.replace(/^@/, '').toLowerCase()),
     },
     oauth: {
       publicUrl: str('PUBLIC_URL', '').replace(/\/+$/, ''),

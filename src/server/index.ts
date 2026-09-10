@@ -23,6 +23,10 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerPostsRoutes } from './routes/posts.js';
 import { registerStreamRoutes, wireTenantBroadcast } from './routes/stream.js';
 import { registerTenantsRoutes } from './routes/tenants.js';
+import { registerSystemAdminRoutes } from './routes/system.js';
+import { registerAuthMeRoute } from './routes/me.js';
+import { setSystemAdminDids } from './permission.js';
+import { resolveSystemAdmins } from './oauth/client.js';
 import { HubRegistry } from './hub-registry.js';
 import { registerStatic } from './static.js';
 
@@ -50,6 +54,18 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
   // 管理セッションはトークンログインと OAuth ログインで共有する。
   const sessions = new AdminSessionStore(config.admin.sessionTtlHours);
 
+  // システム管理者 (`SYSTEM_ADMINS`) は DID で判定する。ハンドルは変更され得るため、
+  // 起動時に一度だけ DID へ解決し、以降は同期的な Set 参照で判定する
+  // (`permission.ts` の `isSystemAdmin`)。空なら何もしない (テナントの owner だけで
+  // 運用する構成も許容するため、これ自体はエラーにしない)。
+  const resolvedSystemAdmins = await resolveSystemAdmins(config);
+  setSystemAdminDids(new Set(resolvedSystemAdmins.keys()));
+  if (resolvedSystemAdmins.size > 0) {
+    logger.info(`システム管理者: ${resolvedSystemAdmins.size} 件`, {
+      actors: [...resolvedSystemAdmins.values()].map((a) => a.handle),
+    });
+  }
+
   // API はキャッシュさせない。イベント階層付きの経路も対象にする。
   app.addHook('onRequest', (request, reply, done) => {
     if (request.url.includes('/api/')) {
@@ -66,6 +82,13 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
   registerHealthRoutes(app, registry, hubs);
   registerAdminSessionRoutes(app, config, sessions);
   registerTenantsRoutes(app, config, registry, sessions, hubs);
+  registerAuthMeRoute(app, config, registry, sessions);
+  // システム管理 API は multi モード専用。single には「複数テナントを横断する」
+  // 概念が無く、ここでの操作 (全テナント一覧・任意オーナーでの作成など) が
+  // 意味を持たないため、そもそも登録しないことで 404 にする。
+  if (config.tenancy.mode === 'multi') {
+    registerSystemAdminRoutes(app, config, registry, sessions, hubs);
+  }
 
   /**
    * テナントに属する API。素の `/api/...` と `/e/<eventId>/api/...` の

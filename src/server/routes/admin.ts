@@ -24,6 +24,7 @@ import {
 } from '../admin-auth.js';
 import { checkTenantPermission } from '../permission.js';
 import { getTenant } from '../tenant-context.js';
+import { resolveActor } from '../oauth/client.js';
 
 const logger = createLogger('admin');
 
@@ -67,6 +68,11 @@ interface AuditEntry {
 }
 
 const auditLog: AuditEntry[] = [];
+
+/** システム管理 API (`routes/system.ts`) が全テナント分の監査ログを見るために使う。 */
+export function getAuditLog(): AuditEntry[] {
+  return auditLog;
+}
 
 function recordAudit(
   action: string,
@@ -485,6 +491,15 @@ export function registerAdminRoutes(
   app.post<{ Body: { host?: unknown } }>('/api/admin/jetstream', async (request, reply) => {
     const tenant = getTenant(request);
     // Jetstream 接続は全テナント共有のため、この操作は他テナントにも影響する。
+    // multi モードではテナント側からの切り替えを一律禁止し、システム管理 API
+    // (`/api/admin/system/jetstream`) に集約する。single モードでは
+    // テナントが 1 つしかなく影響範囲が自分自身に限られるため、従来どおり owner に許す。
+    if (config.tenancy.mode === 'multi') {
+      return reply.code(403).send({
+        error: 'forbidden',
+        message: 'マルチテナント運用では接続先の切り替えはシステム管理者のみ実行できます',
+      });
+    }
     // 影響範囲の広さに鑑みて owner 限定にする。
     if (requireRole(request, reply, tenant, 'owner')) return;
     const { host } = request.body ?? {};
@@ -616,5 +631,87 @@ export function registerAdminRoutes(
     recordAudit('clear', wall.id, request, undefined, sessions);
     wall.clear();
     return reply.send({ ok: true });
+  });
+
+  // ---- メンバー管理 (owner とシステム管理者のみ。single モードには概念が無い) ----
+
+  app.get('/api/admin/members', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (config.tenancy.mode !== 'multi') {
+      return badRequest(reply, '単一テナント運用ではメンバー管理を使いません');
+    }
+    if (requireRole(request, reply, tenant, 'owner')) return;
+    return reply.send({ members: tenant.listMembers() });
+  });
+
+  app.post<{ Body: { actor?: unknown; role?: unknown } }>(
+    '/api/admin/members',
+    async (request, reply) => {
+      const tenant = getTenant(request);
+      if (config.tenancy.mode !== 'multi') {
+        return badRequest(reply, '単一テナント運用ではメンバー管理を使いません');
+      }
+      if (requireRole(request, reply, tenant, 'owner')) return;
+      const { actor, role } = request.body ?? {};
+      if (typeof actor !== 'string' || actor.trim() === '') {
+        return badRequest(reply, 'actor は空でない文字列で指定してください');
+      }
+      if (role !== 'owner' && role !== 'moderator') {
+        return badRequest(reply, "role は 'owner' か 'moderator' で指定してください");
+      }
+      // actor はハンドルまたは DID。ハンドルは変更され得るため、保存前に DID へ解決する。
+      const resolved = await resolveActor(config, actor);
+      if (!resolved) {
+        return badRequest(reply, `アカウントを解決できませんでした: ${actor}`);
+      }
+      try {
+        const member = tenant.addMember({ did: resolved.did, handle: resolved.handle, role });
+        recordAudit('member-add', `${member.handle} (${member.role})`, request, undefined, sessions);
+        return reply.send({ member });
+      } catch (err) {
+        return badRequest(reply, err instanceof Error ? err.message : 'メンバーを追加できません');
+      }
+    }
+  );
+
+  app.patch<{ Params: { did: string }; Body: { role?: unknown } }>(
+    '/api/admin/members/:did',
+    async (request, reply) => {
+      const tenant = getTenant(request);
+      if (config.tenancy.mode !== 'multi') {
+        return badRequest(reply, '単一テナント運用ではメンバー管理を使いません');
+      }
+      if (requireRole(request, reply, tenant, 'owner')) return;
+      const { role } = request.body ?? {};
+      if (role !== 'owner' && role !== 'moderator') {
+        return badRequest(reply, "role は 'owner' か 'moderator' で指定してください");
+      }
+      try {
+        // 自分自身を降格させることも、owner が 0 人にならない限り許可する。
+        const member = tenant.updateMemberRole(request.params.did, role);
+        if (!member) {
+          return reply.code(404).send({ error: 'member_not_found' });
+        }
+        recordAudit('member-update', `${member.handle} -> ${member.role}`, request, undefined, sessions);
+        return reply.send({ member });
+      } catch (err) {
+        return badRequest(reply, err instanceof Error ? err.message : '役割を変更できません');
+      }
+    }
+  );
+
+  app.delete<{ Params: { did: string } }>('/api/admin/members/:did', async (request, reply) => {
+    const tenant = getTenant(request);
+    if (config.tenancy.mode !== 'multi') {
+      return badRequest(reply, '単一テナント運用ではメンバー管理を使いません');
+    }
+    if (requireRole(request, reply, tenant, 'owner')) return;
+    try {
+      const ok = tenant.removeMember(request.params.did);
+      if (ok) recordAudit('member-remove', request.params.did, request, undefined, sessions);
+      return reply.send({ ok });
+    } catch (err) {
+      return badRequest(reply, err instanceof Error ? err.message : 'メンバーを削除できません');
+    }
   });
 }
