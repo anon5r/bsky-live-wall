@@ -171,7 +171,7 @@ body {
 .bluesky-logo {
   height: 0.82em;
   width: auto;
-  margin: 0 0.1em;
+  margin-inline-end: 0.22em;
   vertical-align: -0.07em;
   color: var(--bluesky-blue);
   fill: currentColor;

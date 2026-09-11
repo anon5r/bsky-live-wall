@@ -666,37 +666,15 @@
 
   /**
    * イベントタイトルを描画する。
-   * タイトルに含まれる「Bluesky」は、ロゴ表示が有効なら Font Awesome の
-   * ブランドアイコンに置き換える (読み上げ用に元のタイトルを aria-label に残す)。
+   * ロゴ表示が有効なら、タイトルの先頭に Bluesky のブランドアイコンを添える。
+   * タイトルの文字列自体は書き換えない (ロゴは表示のオン・オフだけ)。
    * ユーザー入力を innerHTML に渡さないよう、必ずテキストノードとして組み立てる。
    */
   function renderEventTitle(title, showLogo) {
     titleEl.replaceChildren();
-    titleEl.setAttribute('aria-label', title);
-
-    if (!showLogo) {
-      titleEl.textContent = title;
-      titleEl.removeAttribute('aria-label');
-      return;
-    }
-
-    const pattern = /bluesky/gi;
-    let lastIndex = 0;
-    let match;
-    let replaced = false;
-    while ((match = pattern.exec(title)) !== null) {
-      if (match.index > lastIndex) {
-        titleEl.appendChild(document.createTextNode(title.slice(lastIndex, match.index)));
-      }
-      titleEl.appendChild(createBlueskyLogo());
-      replaced = true;
-      lastIndex = pattern.lastIndex;
-    }
-    if (lastIndex < title.length) {
-      titleEl.appendChild(document.createTextNode(title.slice(lastIndex)));
-    }
-    // 「Bluesky」を含まないタイトルでは読み上げ用の別名を残す意味がない。
-    if (!replaced) titleEl.removeAttribute('aria-label');
+    titleEl.removeAttribute('aria-label');
+    if (showLogo) titleEl.appendChild(createBlueskyLogo());
+    titleEl.appendChild(document.createTextNode(title));
   }
 
   function applyWallState(wallState) {

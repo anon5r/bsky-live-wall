@@ -94,26 +94,50 @@
     runBackfill(minutes, wallId);
   }
 
-  const backfillText = $derived.by(() => {
+  // 経過時間は 1 秒ごとに自前で進める。状態のポーリング (3 秒) だけに任せると
+  // 表示が飛び飛びになり、進んでいるのか止まっているのか分からないため。
+  let nowTick = $state(Date.now());
+  $effect(() => {
+    if (!(store.backfill && store.backfill.running)) return;
+    const timer = setInterval(() => {
+      nowTick = Date.now();
+    }, 1000);
+    return () => clearInterval(timer);
+  });
+
+  const backfillView = $derived.by(() => {
     const status = store.backfill;
-    if (!status) return '';
+    if (!status) return null;
+    const target = status.targetWallId
+      ? 'ウォール「' + wallNameOf(status.targetWallId) + '」'
+      : '全ウォール';
     if (status.running) {
-      const elapsed = status.startedAt ? Math.round((Date.now() - status.startedAt) / 1000) : 0;
-      const target = status.targetWallId ? 'ウォール「' + wallNameOf(status.targetWallId) + '」' : '全ウォール';
-      return '取り込み中: 過去 ' + status.minutes + ' 分 / ' + target + ' (' + elapsed + ' 秒経過)';
+      const elapsed = status.startedAt ? Math.max(0, Math.round((nowTick - status.startedAt) / 1000)) : 0;
+      return {
+        variant: 'brand',
+        icon: 'fa-solid fa-spinner fa-spin',
+        text: '取り込み中: 過去 ' + status.minutes + ' 分 / ' + target,
+        note:
+          '収集済み ' +
+          (status.buffered || 0) +
+          ' 件 / ' +
+          elapsed +
+          ' 秒経過 — 取り込みはサーバー側で動いています。この画面を閉じても止まりません。',
+      };
     }
-    if (!status.finishedAt) return '';
+    if (!status.finishedAt) return null;
     const took = status.startedAt ? ((status.finishedAt - status.startedAt) / 1000).toFixed(1) : '-';
-    return (
-      '直近の取り込み: 過去 ' +
-      status.minutes +
-      ' 分 / ' +
-      status.added +
-      ' 件を追加 (' +
-      took +
-      ' 秒)' +
-      (status.caughtUp ? '' : ' — 途中で打ち切られました')
-    );
+    return {
+      variant: status.caughtUp ? 'success' : 'warning',
+      icon: status.caughtUp ? 'fa-solid fa-circle-check' : 'fa-solid fa-triangle-exclamation',
+      text: '直近の取り込み: 過去 ' + status.minutes + ' 分 / ' + status.added + ' 件を追加',
+      note:
+        target +
+        ' / ' +
+        took +
+        ' 秒' +
+        (status.caughtUp ? '' : ' — 現在に追いつく前に打ち切られました'),
+    };
   });
 
   let modlistActorInputEl = $state(null);
@@ -153,7 +177,9 @@
   let subtitleDraft = $state('');
   let eventLoaded = false;
 
-  // ポーリングで入力中の値が戻らないよう、初回だけサーバー値を写す。
+  // ポーリングで入力中の値が戻らないよう、サーバー値を写すのは初回だけ。
+  // ただし入力欄はセクションを切り替えるたびに作り直されるので、
+  // 要素が生えた時点で下書きを書き戻す (入力中の欄には触らない)。
   $effect(() => {
     const t = store.settings.title;
     const sub = store.settings.subtitle;
@@ -161,10 +187,17 @@
       eventLoaded = true;
       titleDraft = t || '';
       subtitleDraft = sub || '';
-      if (titleInputEl) titleInputEl.value = titleDraft;
-      if (subtitleInputEl) subtitleInputEl.value = subtitleDraft;
     }
+    restoreInput(titleInputEl, titleDraft);
+    restoreInput(subtitleInputEl, subtitleDraft);
   });
+
+  function restoreInput(el, value) {
+    if (!el) return;
+    if (el.matches(':focus-within')) return;
+    if (el.value === value) return;
+    el.value = value;
+  }
 
   function onEventInput() {
     titleDraft = (titleInputEl && titleInputEl.value) || '';
@@ -456,7 +489,7 @@
   <h2>バックフィル
     <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
   </h2>
-  <p>過去に遡って投稿を取り込みます。ライブ受信と並行して動くため、実行中も新着の表示は止まりません。</p>
+  <p>過去に遡って投稿を取り込みます。ライブ受信と並行して動くため、実行中も新着の表示は止まりません。取り込みはサーバー側で動くので、この画面を閉じても中断されません。</p>
 </header>
 
 <section class="panel">
@@ -487,10 +520,12 @@
       それぞれのウォールの監視語に一致した投稿だけを拾います。既に削除された投稿は取り込まれません。
       上限は約 36 時間 (2160 分) です。
     </p>
-    {#if backfillText}
-      <wa-callout variant="neutral">
-        <i class="fa-solid fa-spinner fa-fw" aria-hidden="true"></i>
-        <span>{backfillText}</span>
+    {#if backfillView}
+      <wa-callout variant={backfillView.variant}>
+        <i class={backfillView.icon + ' fa-fw'} slot="icon" aria-hidden="true"></i>
+        <span aria-live="polite">{backfillView.text}</span>
+        <br />
+        <small>{backfillView.note}</small>
       </wa-callout>
     {/if}
   </div>
@@ -711,10 +746,6 @@
   {/if}
 </section>
 
-{#if canManageMembers}
-  <MembersPanel />
-{/if}
-
 <!-- 非表示にした投稿 -->
 <section class="panel panel-hidden">
   <h2 class="panel-title">
@@ -733,6 +764,10 @@
   </h2>
   <p>このテナントを操作できるアカウントと、ログイン中のセッション。</p>
 </header>
+{#if canManageMembers}
+  <MembersPanel />
+{/if}
+
 <!-- セッション -->
 <section class="panel">
   <h2 class="panel-title">

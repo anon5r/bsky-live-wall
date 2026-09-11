@@ -747,7 +747,15 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       ...this.hub.getBackfillStatus(),
       targetWallId: this.backfillTargetWallId,
       added: this.backfillAdded,
+      buffered: this.countBackfillBuffered(),
     };
+  }
+
+  /** 収集済みで確定待ちの件数。実行中の進捗表示に使う。 */
+  private countBackfillBuffered(): number {
+    let total = 0;
+    for (const wall of this.walls.values()) total += wall.backfillBuffer.size;
+    return total;
   }
 
   /** このウォールが今回の取り込み対象か。 */

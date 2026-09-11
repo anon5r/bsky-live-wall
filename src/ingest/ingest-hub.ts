@@ -47,6 +47,7 @@ export class JetstreamIngestHub extends EventEmitter implements IngestHub {
     finishedAt: null,
     caughtUp: false,
     added: 0,
+    buffered: 0,
   };
   /** 実行中のバックフィルを要求したテナント ID。 */
   private backfillOwner: string | null = null;
@@ -162,6 +163,7 @@ export class JetstreamIngestHub extends EventEmitter implements IngestHub {
       finishedAt: null,
       caughtUp: false,
       added: 0,
+      buffered: 0,
     };
     this.status = { ...this.status, backfilling: true };
     this.emit('status', this.getStatus());

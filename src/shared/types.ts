@@ -283,6 +283,8 @@ export interface BackfillStatus {
   caughtUp: boolean;
   /** 直近の実行で表示に加わった件数 (ウォール合計) */
   added: number;
+  /** 実行中に収集済みで、確定待ちの件数 (ウォール合計)。進捗表示に使う */
+  buffered: number;
 }
 
 /** 購読中のモデレーションリストの状態。 */
