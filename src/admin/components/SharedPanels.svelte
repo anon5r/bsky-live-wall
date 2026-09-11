@@ -74,10 +74,13 @@
 
   let backfillMinutesEl = $state(null);
   let backfillTargetEl = $state(null);
+
   function onBackfillRun() {
     const minutes = parseInt((backfillMinutesEl && backfillMinutesEl.value) || '0', 10);
-    const useCurrent = backfillTargetEl && backfillTargetEl.value === 'current';
-    runBackfill(minutes, useCurrent);
+    // 取り込み対象はウォールを名指しで選ぶ。テナント全体の画面には
+    // 「選択中のウォール」という文脈が無いため。
+    const wallId = (backfillTargetEl && backfillTargetEl.value) || '';
+    runBackfill(minutes, wallId);
   }
 
   const backfillText = $derived.by(() => {
@@ -310,6 +313,32 @@
 </section>
 
 
+
+{#if store.mode !== 'multi'}
+  <!-- マルチテナント運用では Jetstream 接続はテナント横断の共有資源であり、
+       テナント側からの切り替えはサーバー側で 403 になる (システム管理画面に集約)。
+       そのため UI 自体をここでは出さない。 -->
+  <section class="panel">
+    <div class="field">
+      <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
+      <div class="field-row">
+        <wa-select id="jetstream-select" bind:this={jetstreamSelectEl} disabled={!canEditSettings}>
+          {#each store.jetstreamHosts || [] as host (host)}
+            <wa-option value={host}>{host}</wa-option>
+          {/each}
+        </wa-select>
+        <wa-button variant="neutral" appearance="outlined" disabled={!canEditSettings} onclick={onJetstreamSwitch}>
+          <i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え
+        </wa-button>
+      </div>
+      <p class="field-note">
+        投稿の受信元です。すべてのウォールが 1 本の接続を共有しているため、切り替えると全画面に影響します。
+        切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
+      </p>
+    </div>
+  </section>
+{/if}
+
 {:else if section === 'event'}
 <header class="wall-section-head">
   <h2>イベント情報
@@ -389,10 +418,6 @@
 </header>
 <!-- 配信 ON/OFF -->
 <section class="panel">
-  <h2 class="panel-title">
-    <i class="fa-solid fa-tower-broadcast fa-fw" aria-hidden="true"></i> モニターへの配信
-    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
-  </h2>
   <div class="control-row">
     <span class="control-label">
       配信の有効 / 停止
@@ -403,29 +428,53 @@
       <span class="toggle-text">{store.state.paused ? '停止中' : '有効'}</span>
     </div>
   </div>
-  <div class="control-row">
-    <span class="control-label">
-      タイトルの Bluesky ロゴ
-      <span class="control-note">
-        会場モニターのタイトルに含まれる「Bluesky」を、ブランドカラーのロゴアイコンで表示します。
-        {#if !canEditSettings}この設定を変更できるのはオーナーだけです。{/if}
-      </span>
-    </span>
-    <div class="switch-row">
-      <wa-switch bind:this={logoSwitchEl} disabled={!canEditSettings} onchange={onLogoToggle}></wa-switch>
-      <span class="toggle-text">{showBlueskyLogo ? 'ロゴで表示' : '文字のまま'}</span>
-    </div>
-  </div>
 </section>
 
 
 {:else if section === 'ingest'}
 <header class="wall-section-head">
-  <h2>受信と取り込み
+  <h2>バックフィル
     <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
   </h2>
-  <p>Jetstream からの受信と、過去分をどこまで遡るか。</p>
+  <p>過去に遡って投稿を取り込みます。ライブ受信と並行して動くため、実行中も新着の表示は止まりません。</p>
 </header>
+
+<section class="panel">
+  <div class="field">
+    <label for="backfill-minutes"><i class="fa-solid fa-clock-rotate-left fa-fw" aria-hidden="true"></i> 取り込む</label>
+    <div class="field-row">
+      <wa-select id="backfill-minutes" bind:this={backfillMinutesEl} label="遡る時間" value={String(presets[0] || 120)}>
+        {#each presets as minutes (minutes)}
+          <wa-option value={String(minutes)}>過去 {presetLabel(minutes)}</wa-option>
+        {/each}
+      </wa-select>
+      <wa-select id="backfill-target" bind:this={backfillTargetEl} label="取り込み先" value="">
+        <wa-option value="">すべてのウォール</wa-option>
+        {#each store.walls as w (w.id)}
+          <wa-option value={w.id}>{w.name}</wa-option>
+        {/each}
+      </wa-select>
+      <wa-button
+        variant="neutral"
+        appearance="outlined"
+        disabled={!canEditSettings || (store.backfill && store.backfill.running)}
+        onclick={onBackfillRun}
+      >
+        <i class="fa-solid fa-download fa-fw" aria-hidden="true"></i> 取り込む
+      </wa-button>
+    </div>
+    <p class="field-note">
+      それぞれのウォールの監視語に一致した投稿だけを拾います。既に削除された投稿は取り込まれません。
+      上限は約 36 時間 (2160 分) です。
+    </p>
+    {#if backfillText}
+      <wa-callout variant="neutral">
+        <i class="fa-solid fa-spinner fa-fw" aria-hidden="true"></i>
+        <span>{backfillText}</span>
+      </wa-callout>
+    {/if}
+  </div>
+</section>
 
 <section class="panel">
   <div class="field">
@@ -458,69 +507,9 @@
     {#if presets.length === 0}
       <p class="empty-msg">候補がありません。</p>
     {/if}
-    <p class="field-note">ここで足した候補が、取り込みのメニューに出ます。</p>
+    <p class="field-note">ここで足した候補が、上の「遡る時間」とウォール作成時のメニューに出ます。</p>
   </div>
 </section>
-<!-- 受信設定 -->
-<section class="panel">
-  <h2 class="panel-title">
-    <i class="fa-solid fa-satellite-dish fa-fw" aria-hidden="true"></i> 受信設定
-    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
-  </h2>
-
-  {#if store.mode !== 'multi'}
-    <!-- マルチテナント運用では Jetstream 接続はテナント横断の共有資源であり、
-         テナント側からの切り替えはサーバー側で 403 になる (システム管理画面に集約)。
-         そのため UI 自体をここでは出さない。 -->
-    <div class="field">
-      <label for="jetstream-select"><i class="fa-solid fa-network-wired fa-fw" aria-hidden="true"></i> Jetstream 接続先</label>
-      <div class="field-row">
-        <wa-select id="jetstream-select" bind:this={jetstreamSelectEl}>
-          {#each store.jetstreamHosts || [] as host (host)}
-            <wa-option value={host}>{host}</wa-option>
-          {/each}
-        </wa-select>
-        <wa-button variant="neutral" appearance="outlined" onclick={onJetstreamSwitch}>
-          <i class="fa-solid fa-arrows-rotate fa-fw" aria-hidden="true"></i> 切り替え
-        </wa-button>
-      </div>
-      <p class="field-note">
-        投稿の受信元です。すべてのウォールが 1 本の接続を共有しているため、切り替えると全画面に影響します。
-        切り替え中の取りこぼしは、直近のカーソルから再生して補填されます。
-      </p>
-    </div>
-  {:else}
-    <p class="field-note">
-      <i class="fa-solid fa-circle-info fa-fw" aria-hidden="true"></i>
-      マルチテナント運用では接続先の切り替えはシステム管理画面から行います。
-    </p>
-  {/if}
-
-  <div class="field">
-    <label for="backfill-minutes"><i class="fa-solid fa-clock-rotate-left fa-fw" aria-hidden="true"></i> 過去の投稿を取り込む</label>
-    <div class="field-row">
-      <wa-input id="backfill-minutes" bind:this={backfillMinutesEl} type="number" min="1" max="2160" step="10" value="120" label="遡る分数" style="max-width: 10em;"></wa-input>
-      <wa-select id="backfill-target" bind:this={backfillTargetEl} label="取り込み対象" value="">
-        <wa-option value="">すべてのウォール</wa-option>
-        <wa-option value="current">選択中のウォールのみ</wa-option>
-      </wa-select>
-      <wa-button variant="neutral" appearance="outlined" disabled={store.backfill && store.backfill.running} onclick={onBackfillRun}>
-        <i class="fa-solid fa-download fa-fw" aria-hidden="true"></i> 取り込む
-      </wa-button>
-    </div>
-    <p class="field-note">
-      指定した分だけ過去に遡って投稿を拾います。ライブ受信と並行して動くため、実行中も新着の表示は止まりません。
-      上限は約 36 時間 (2160 分) です。既に削除された投稿は取り込まれません。
-    </p>
-    {#if backfillText}
-      <wa-callout variant="neutral">
-        <i class="fa-solid fa-spinner fa-fw" aria-hidden="true"></i>
-        <span>{backfillText}</span>
-      </wa-callout>
-    {/if}
-  </div>
-</section>
-
 
 {:else if section === 'moderation'}
 <header class="wall-section-head">

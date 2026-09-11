@@ -986,6 +986,30 @@ async function postExclude(body, successMessage) {
   }
 }
 
+/**
+ * いまのアカウントがテナントの設定を変えられるか。
+ *
+ * モデレーターは「流れている投稿への判断」と「進行に合わせた切り替え」だけを担う。
+ * 監視語・除外・受信・表示・メンバーなどの設定はオーナー (とシステム管理者) のもの。
+ * サーバー側でも同じ線で弾いているので、ここは画面を絞るためだけに使う。
+ */
+export function canEditSettings() {
+  return store.myRole === 'owner' || store.myRole === 'system';
+}
+
+/**
+ * ウォール配下のセクション。ナビ (WallTabs) と本体 (WallPanel) で同じ id を使う。
+ * 別々に並べると、ずれたときにセクションが空で表示される (実際に起きた)。
+ */
+export const WALL_SECTIONS = [
+  // ownerOnly のセクションはモデレーターには出さない (見ても操作できないため)。
+  { id: 'ops', label: '承認待ち / 直近' },
+  { id: 'terms', label: '監視語' },
+  { id: 'monitor', label: '会場モニター' },
+  { id: 'moderation', label: '承認と除外', ownerOnly: true },
+  { id: 'manage', label: 'ウォール管理', ownerOnly: true },
+];
+
 export const SCREEN_MODE_LABELS = {
   wall: '通常 (投稿を流す)',
   waiting: '待機',
@@ -1306,13 +1330,17 @@ export async function switchJetstream(host) {
   }
 }
 
-export async function runBackfill(minutes, useCurrentWallOnly) {
+/**
+ * 過去の投稿を取り込む。
+ * wallId を渡すとそのウォールだけに反映する (空なら全ウォール)。
+ */
+export async function runBackfill(minutes, wallId) {
   if (!minutes || minutes < 1) {
-    showToast('遡る分数を 1 以上で指定してください');
+    showToast('遡る時間を選んでください');
     return false;
   }
   const body = { minutes };
-  if (useCurrentWallOnly && store.currentWallId) body.wall = store.currentWallId;
+  if (wallId) body.wall = wallId;
   try {
     await callAdminApi(tenantPath('/api/admin/backfill'), body);
     showToast('取り込みを開始しました');

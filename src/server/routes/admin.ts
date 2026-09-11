@@ -631,7 +631,7 @@ export function registerAdminRoutes(
     '/api/admin/terms',
     async (request, reply) => {
       const tenant = getTenant(request);
-      if (requireRole(request, reply, tenant, 'moderator')) return;
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const wall = pickWall(tenant, request.body?.wall);
       if (!wall) return wallNotFound(reply);
       const { terms } = request.body ?? {};
@@ -843,6 +843,11 @@ export function registerAdminRoutes(
     if (typeof parsed === 'string') return badRequest(reply, parsed);
     if (Object.keys(parsed).length === 0) return badRequest(reply, '変更する設定がありません');
 
+    // 進行に合わせたモードの切り替えは現場の仕事なのでモデレーターも行える。
+    // 文言や画像の設定はイベントの作り込みなので owner に限る。
+    const onlyMode = Object.keys(parsed).every((key) => key === 'mode');
+    if (!onlyMode && requireRole(request, reply, tenant, 'owner')) return;
+
     const applied = wall.setScreen(parsed);
     recordAudit(
       'screen',
@@ -859,7 +864,7 @@ export function registerAdminRoutes(
     '/api/admin/screen/image',
     async (request, reply) => {
       const tenant = getTenant(request);
-      if (requireRole(request, reply, tenant, 'moderator')) return;
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const wall = pickWall(tenant, request.body?.wall);
       if (!wall) return wallNotFound(reply);
 
@@ -901,7 +906,7 @@ export function registerAdminRoutes(
 
   app.delete<{ Querystring: { wall?: string } }>('/api/admin/screen/image', async (request, reply) => {
     const tenant = getTenant(request);
-    if (requireRole(request, reply, tenant, 'moderator')) return;
+    if (requireRole(request, reply, tenant, 'owner')) return;
     const wall = pickWall(tenant, request.query.wall);
     if (!wall) return wallNotFound(reply);
 
@@ -943,7 +948,7 @@ export function registerAdminRoutes(
     '/api/admin/exclude',
     async (request, reply) => {
       const tenant = getTenant(request);
-      if (requireRole(request, reply, tenant, 'moderator')) return;
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const wall = pickWall(tenant, request.body?.wall);
       if (!wall) return wallNotFound(reply);
       const { terms, policy } = request.body ?? {};
@@ -1024,7 +1029,7 @@ export function registerAdminRoutes(
     '/api/admin/backfill',
     async (request, reply) => {
       const tenant = getTenant(request);
-      if (requireRole(request, reply, tenant, 'moderator')) return;
+      if (requireRole(request, reply, tenant, 'owner')) return;
       const { minutes, wall } = request.body ?? {};
       if (typeof minutes !== 'number' || !Number.isFinite(minutes)) {
         return badRequest(reply, 'minutes は数値で指定してください');
@@ -1100,7 +1105,7 @@ export function registerAdminRoutes(
 
   app.post<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
     const tenant = getTenant(request);
-    if (requireRole(request, reply, tenant, 'moderator')) return;
+    if (requireRole(request, reply, tenant, 'owner')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || !uri.startsWith('at://')) {
       return badRequest(reply, 'uri は at:// で始まる文字列で指定してください');
@@ -1112,7 +1117,7 @@ export function registerAdminRoutes(
 
   app.delete<{ Body: { uri?: unknown } }>('/api/admin/modlists', async (request, reply) => {
     const tenant = getTenant(request);
-    if (requireRole(request, reply, tenant, 'moderator')) return;
+    if (requireRole(request, reply, tenant, 'owner')) return;
     const { uri } = request.body ?? {};
     if (typeof uri !== 'string' || uri === '') {
       return badRequest(reply, 'uri は空でない文字列で指定してください');
@@ -1123,7 +1128,7 @@ export function registerAdminRoutes(
 
   app.post<{ Body: { wall?: unknown } }>('/api/admin/clear', async (request, reply) => {
     const tenant = getTenant(request);
-    if (requireRole(request, reply, tenant, 'moderator')) return;
+    if (requireRole(request, reply, tenant, 'owner')) return;
     const wall = pickWall(tenant, request.body?.wall);
     if (!wall) return wallNotFound(reply);
     recordAudit('clear', wall.id, request, undefined, sessions);

@@ -12,6 +12,8 @@
     onRemove,
     /** 語ごとの承認要否を変えられるようにする場合に渡す (term, requireApproval) => void */
     onApprovalChange = null,
+    /** 閲覧だけ (モデレーターなど)。追加・削除の導線を出さない */
+    readonly = false,
     disabled = false,
     showKeywordWarning = false,
     addButtonVariant = 'brand',
@@ -64,6 +66,7 @@
   }
 </script>
 
+{#if !readonly}
 <div class="field-row">
   <wa-input bind:this={inputEl} autocomplete="off" {placeholder} {disabled} use:enterKey={submitHashtag}></wa-input>
   <wa-button
@@ -93,6 +96,7 @@
   <i class="fa-solid fa-hashtag fa-fw" aria-hidden="true"></i> はハッシュタグ (Enter も同じ)、
   <i class="fa-solid fa-font fa-fw" aria-hidden="true"></i> はキーワード (本文の部分一致) として追加します。
 </p>
+{/if}
 
 {#if showKeywordWarning && keywordCount > 0}
   <wa-callout variant="warning">
@@ -104,7 +108,7 @@
 
 <ul class="term-rows">
   {#each terms || [] as term (term.type + ':' + term.value)}
-    <li class={onApprovalChange ? 'term-row term-row-approval' : 'term-row'}>
+    <li class={(onApprovalChange ? 'term-row term-row-approval' : 'term-row') + (readonly ? ' term-row-readonly' : '')}>
       <span class={'term-row-icon term-row-icon-' + term.type} aria-hidden="true">
         <i class={iconFor(term.type)}></i>
       </span>
@@ -124,15 +128,17 @@
           {/each}
         </wa-select>
       {/if}
-      <button
-        type="button"
-        class="term-row-remove"
-        aria-label={(term.type === 'hashtag' ? 'ハッシュタグ ' : 'キーワード ') + term.value + ' を削除'}
-        {disabled}
-        onclick={() => onRemove(term)}
-      >
-        <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
-      </button>
+      {#if !readonly}
+        <button
+          type="button"
+          class="term-row-remove"
+          aria-label={(term.type === 'hashtag' ? 'ハッシュタグ ' : 'キーワード ') + term.value + ' を削除'}
+          {disabled}
+          onclick={() => onRemove(term)}
+        >
+          <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+        </button>
+      {/if}
     </li>
   {/each}
 </ul>

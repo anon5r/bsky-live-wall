@@ -6,7 +6,14 @@
    * 開き、その配下に監視語・承認・会場モニターなどのセクションがぶら下がる。
    * 右にはいま選んでいるセクションだけを出す。
    */
-  import { store, switchWall, createWall, MAX_WALLS } from '../lib/store.svelte.js';
+  import {
+    store,
+    switchWall,
+    createWall,
+    canEditSettings,
+    MAX_WALLS,
+    WALL_SECTIONS,
+  } from '../lib/store.svelte.js';
   import { enterKey } from '../lib/ime.js';
   import TermEditor from './TermEditor.svelte';
   import WallPanel from './WallPanel.svelte';
@@ -16,22 +23,28 @@
   let section = $state('tenant:status');
   let openWallId = $state('');
 
-  const tenantSections = [
+  // モデレーターに出すのは、見る画面と現場で使う操作だけ。設定はオーナーのもの。
+  const allTenantSections = [
     { id: 'status', label: '状態', icon: 'fa-solid fa-gauge-high' },
-    { id: 'event', label: 'イベント情報', icon: 'fa-solid fa-signature' },
     { id: 'delivery', label: 'モニターへの配信', icon: 'fa-solid fa-tower-broadcast' },
-    { id: 'ingest', label: '受信と取り込み', icon: 'fa-solid fa-satellite-dish' },
-    { id: 'moderation', label: 'モデレーション', icon: 'fa-solid fa-shield-halved' },
-    { id: 'access', label: 'メンバーとセッション', icon: 'fa-solid fa-users' },
+    { id: 'event', label: 'イベント情報', icon: 'fa-solid fa-signature', ownerOnly: true },
+    { id: 'ingest', label: 'バックフィル', icon: 'fa-solid fa-clock-rotate-left', ownerOnly: true },
+    { id: 'moderation', label: 'モデレーション', icon: 'fa-solid fa-shield-halved', ownerOnly: true },
+    { id: 'access', label: 'メンバーとセッション', icon: 'fa-solid fa-users', ownerOnly: true },
   ];
 
-  const wallSections = [
-    { id: 'terms', label: '監視語' },
-    { id: 'moderation', label: '承認と除外' },
-    { id: 'monitor', label: '会場モニター' },
-    { id: 'manage', label: 'ウォール管理' },
-    { id: 'ops', label: '承認待ち / 直近' },
-  ];
+  const isOwner = $derived(canEditSettings());
+  const tenantSections = $derived(allTenantSections.filter((s) => isOwner || !s.ownerOnly));
+  const wallSections = $derived(WALL_SECTIONS.filter((s) => isOwner || !s.ownerOnly));
+
+  // 権限が下がった (別アカウントで入り直した) ときに、出せないセクションへ
+  // 留まらないようにする。
+  $effect(() => {
+    if (isOwner) return;
+    const tenantOk = tenantSections.some((s) => section === 'tenant:' + s.id);
+    const wallOk = wallSections.some((s) => section === 'wall:' + s.id);
+    if (!tenantOk && !wallOk) section = 'tenant:status';
+  });
 
   const currentWall = $derived(store.walls.find((w) => w.id === store.currentWallId) || store.walls[0]);
   const atLimit = $derived(store.walls.length >= MAX_WALLS);
@@ -59,7 +72,7 @@
     }
     openWallId = wall.id;
     if (wall.id !== store.currentWallId) switchWall(wall.id);
-    if (!section.startsWith('wall:')) section = 'wall:terms';
+    if (!section.startsWith('wall:')) section = 'wall:ops';
   }
 
   function pickWallSection(wall, id) {
@@ -182,15 +195,17 @@
       {/if}
     {/each}
 
-    <button
-      type="button"
-      class={'wall-nav-item' + (section === 'add-wall' ? ' is-active' : '')}
-      disabled={atLimit}
-      onclick={() => (section = 'add-wall')}
-    >
-      <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i>
-      <span class="wall-nav-label">ウォールを追加</span>
-    </button>
+    {#if isOwner}
+      <button
+        type="button"
+        class={'wall-nav-item' + (section === 'add-wall' ? ' is-active' : '')}
+        disabled={atLimit}
+        onclick={() => (section = 'add-wall')}
+      >
+        <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i>
+        <span class="wall-nav-label">ウォールを追加</span>
+      </button>
+    {/if}
   </nav>
 
   <!-- 右: 選択したセクション -->
@@ -273,7 +288,7 @@
                 {/each}
               </wa-select>
             </div>
-            <p class="field-note">候補は「受信と取り込み」で足せます。</p>
+            <p class="field-note">候補は「バックフィル」で足せます。</p>
           </div>
           <div class="field-row">
             <wa-button variant="brand" disabled={atLimit || creating} onclick={submitCreate}>

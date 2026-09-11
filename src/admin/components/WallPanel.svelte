@@ -28,6 +28,7 @@
     setExcludePolicy,
     EXCLUDE_POLICY_LABELS,
     wallUrl,
+    canEditSettings,
     WALL_MODERATION_LABELS,
     WALL_KEYWORD_APPROVAL_LABELS,
   } from '../lib/store.svelte.js';
@@ -50,8 +51,9 @@
   const moderationBadge = $derived(store.state.moderationMode === 'approve' ? '承認制' : '公開');
 
   // ---- 承認と除外 ----
-  // ウォールの承認設定はテナント構成の変更にあたるため owner (と システム管理者) のみ。
-  const canEditModeration = $derived(store.myRole === 'owner' || store.myRole === 'system');
+  // ウォールの設定はオーナー (とシステム管理者) のもの。
+  // モデレーターには編集 UI 自体を出さず、進行に使うものだけを残す。
+  const canEditModeration = $derived(canEditSettings());
   const wallModerationMode = $derived(store.state.wallModerationMode || 'inherit');
   const wallKeywordApproval = $derived(store.state.wallKeywordRequireApproval || 'inherit');
   const tenantModerationLabel = $derived(store.state.tenantModerationMode === 'approve' ? '承認制' : '公開');
@@ -309,11 +311,15 @@
           terms={store.state.terms || []}
           onAdd={(raw, isKeyword) => addTerm(raw, isKeyword)}
           onRemove={(term) => requestRemoveTerm(term)}
-          onApprovalChange={(term, next) => setTermApproval(term, next)}
+          onApprovalChange={canEditModeration ? (term, next) => setTermApproval(term, next) : null}
+          readonly={!canEditModeration}
           showKeywordWarning={true}
           addLabel="追加"
         />
       </section>
+      {#if !canEditModeration}
+        <p class="field-note">監視語を変更できるのはオーナーだけです。ここでは何を拾っているかだけ確認できます。</p>
+      {/if}
     {:else if section === 'moderation'}
       <header class="wall-section-head">
         <h2>
@@ -532,8 +538,8 @@
         <p class="monitor-preview-caption">会場モニターのプレビュー。下の設定を変えるとここに反映されます。</p>
       </div>
 
-      <!-- モードごとの文言 -->
-      {#if screenMode !== 'wall'}
+      <!-- モードごとの文言 (オーナーのみ) -->
+      {#if canEditModeration && screenMode !== 'wall'}
         <section class="panel">
           {#if screenMode === 'waiting'}
             <div class="control-row">
@@ -621,7 +627,8 @@
         </section>
       {/if}
 
-      <!-- 任意画像 -->
+      <!-- 任意画像 (オーナーのみ) -->
+      {#if canEditModeration}
       <section class="panel">
         <div class="control-row">
           <span class="control-label">
@@ -681,8 +688,10 @@
           </wa-select>
         </div>
       </section>
+      {/if}
 
-      <!-- ヘッダと時計 -->
+      <!-- ヘッダと時計 (オーナーのみ) -->
+      {#if canEditModeration}
       <section class="panel">
         <div class="control-row">
           <span class="control-label">
@@ -716,18 +725,19 @@
           </span>
           <wa-switch
             bind:this={secondsSwitchEl}
-            disabled={!canEditModeration || !showClock}
+            disabled={!showClock}
             onchange={onSecondsToggle}
           ></wa-switch>
         </div>
       </section>
+      {/if}
 
       <p class="field-note">
         どのモードでも受信と承認は続きます。通常へ戻すと、その間に届いた投稿がそのまま流れます。
-        {#if !canEditModeration}ヘッダと時計の設定を変更できるのはオーナーだけです。{/if}
+        {#if !canEditModeration}文言・画像・ヘッダの設定はオーナーが行います。ここでは進行に合わせた切り替えだけできます。{/if}
       </p>
 
-    {:else if section === 'wall'}
+    {:else if section === 'manage'}
       <header class="wall-section-head">
         <h2>ウォール管理</h2>
         <p>このウォールそのものの設定。取り消せない操作は下にまとめています。</p>
@@ -839,5 +849,8 @@
         <p class="panel-subtitle">会場モニターに出ている投稿。ここから個別に取り下げられます。</p>
         <PostList posts={store.recent || []} emptyMessage="まだ投稿がありません。" showHide={true} showBlock={true} />
       </section>
+    {:else}
+      <!-- ここに来るのはナビと本体でセクション id がずれたとき。空白で気付けないのを防ぐ。 -->
+      <p class="empty-msg">セクション「{section}」は見つかりませんでした。</p>
     {/if}
 </div>
