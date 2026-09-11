@@ -172,6 +172,7 @@ sudo systemctl restart bsky-live-wall   # systemd で動かしている場合
 | 症状 | 原因と対処 |
 | --- | --- |
 | `curl http://localhost:3000` が無反応に見える | `/` は `/wall` への 302 で本文が空。`curl -i` / `curl -L`、または `/api/health` で確認する |
+| 同じ LAN の別端末から繋がらない | `HOST` が `127.0.0.1` になっている (既定は `0.0.0.0`)。Docker の場合は `BIND_ADDR=0.0.0.0` も要る |
 | 起動しない (`ADMIN_TOKEN` のエラー) | `TRUST_PROXY=true` ならトークンが必須。`openssl rand -hex 32` で設定する |
 | 管理画面が真っ白 | `pnpm build` を実行していない (`public/admin/` が無い) |
 | Jetstream が「切断」のまま | 送信方向の wss が塞がれている。`JETSTREAM_HOSTS` の別ホストも試す |

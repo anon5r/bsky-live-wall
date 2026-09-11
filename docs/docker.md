@@ -109,11 +109,34 @@ docker compose logs -f app
 
 | 変数 | 既定 | 用途 |
 | --- | --- | --- |
-| `BIND_ADDR` | `127.0.0.1` | ホストのどのアドレスに出すか。別ホストの cloudflared などから叩くなら `0.0.0.0` |
+| `BIND_ADDR` | `127.0.0.1` | ホストのどのアドレスに出すか |
 | `BIND_PORT` | `3000` | ホスト側のポート |
 
-`BIND_ADDR=0.0.0.0` にした場合は、**届く経路をファイアウォールで絞ってください**
-(トンネルを動かしているホストだけで十分です)。Cloudflare Tunnel 経由の構成は
+**別のホストから叩く構成では `BIND_ADDR=0.0.0.0` が必要です。** 既定の
+`127.0.0.1` はそのホストの中からしか届きません。LXC / VM の中でアプリを動かし、
+親ホストや LAN 内の別機材 (Proxmox ホストの cloudflared、別サーバーの nginx など)
+から繋ぐ場合はこれに当たります。
+
+```dotenv
+# .env
+BIND_ADDR=0.0.0.0
+```
+
+```bash
+docker compose up -d --force-recreate app   # .env は起動時にしか読まれない
+docker compose port app 3000                # 0.0.0.0:3000 になっていることを確認
+```
+
+同じホストの中だけで完結する場合 (同居の nginx や cloudflared) は `127.0.0.1`
+のままにしてください。`0.0.0.0` にしたぶんは**ファイアウォールで絞ります**。
+
+```bash
+# 例: Proxmox ホスト (10.0.0.1) からだけ届かせる
+ufw allow from 10.0.0.1 to any port 3000 proto tcp
+ufw deny 3000
+```
+
+Cloudflare Tunnel 経由の構成は
 [deployment.md の「Cloudflare Tunnel で公開する」](./deployment.md) にまとめています。
 
 `app` には次の制限を掛けています。

@@ -281,8 +281,17 @@ TRUST_PROXY=true
 ADMIN_TOKEN=<openssl rand -hex 32 の出力>
 ```
 
-Docker で動かす場合は `.env` に `BIND_ADDR=0.0.0.0` を足します
-(既定はホストの loopback のみに出します)。
+Docker で動かす場合は、アプリの `HOST` に加えて**ホスト側の公開アドレス**も
+変える必要があります。`.env` に `BIND_ADDR=0.0.0.0` を足してください
+(既定の `127.0.0.1` は、そのホストの中からしか届きません)。
+
+```bash
+docker compose up -d --force-recreate app
+docker compose port app 3000     # 0.0.0.0:3000 と出れば正しい
+```
+
+Node で直接動かす場合 (systemd) は `HOST` の既定が `0.0.0.0` なので、
+そのままで親ホストから届きます。
 
 **`HOST=0.0.0.0` にしたぶんは、ファイアウォールで絞ってください。**
 LXC へ入れるのは親ホスト (cloudflared) だけで十分です。
