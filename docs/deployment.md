@@ -251,12 +251,111 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 ### LXC コンテナ側の注意
 
 - **非特権コンテナで問題ありません。** 特権は不要です。
-- 送信方向のインターネット接続が必要です (下記 4 章)。
+- 送信方向のインターネット接続が必要です (下記 5 章)。
 - メモリは 512MB で足ります。`BUFFER_SIZE` を大きくする場合は増やしてください。
 
 ---
 
-## 3. リバースプロキシの設定 (最重要)
+## 3. Cloudflare Tunnel で公開する (Proxmox LXC など)
+
+アプリを LXC / VM の中で動かし、公開は別ホストの `cloudflared` に任せる構成です。
+グローバル IP もポート開放も要らず、TLS と証明書は Cloudflare 側で終わります。
+
+```
+[インターネット] --https--> [Cloudflare] --tunnel--> [Proxmox ホスト: cloudflared]
+                                                            |  http
+                                                            v
+                                                   [LXC: bsky-live-wall :3000]
+```
+
+### アプリ側 (LXC)
+
+`.env` の要点は次の 2 つです。
+
+```dotenv
+# cloudflared から届くようにする (loopback だけだと親ホストから叩けない)
+HOST=0.0.0.0
+# 前段にプロキシが居るので必須。実クライアント IP は X-Forwarded-For で判定する
+TRUST_PROXY=true
+# TRUST_PROXY=true では必須。未設定だと起動しない
+ADMIN_TOKEN=<openssl rand -hex 32 の出力>
+```
+
+Docker で動かす場合は `.env` に `BIND_ADDR=0.0.0.0` を足します
+(既定はホストの loopback のみに出します)。
+
+**`HOST=0.0.0.0` にしたぶんは、ファイアウォールで絞ってください。**
+LXC へ入れるのは親ホスト (cloudflared) だけで十分です。
+
+```bash
+# 例: Proxmox ホストが 10.0.0.1 の場合
+ufw allow from 10.0.0.1 to any port 3000 proto tcp
+ufw deny 3000
+```
+
+### cloudflared 側 (Proxmox ホスト)
+
+```yaml
+# /etc/cloudflared/config.yml
+tunnel: <トンネル ID>
+credentials-file: /etc/cloudflared/<トンネル ID>.json
+
+ingress:
+  - hostname: wall.example.com
+    service: http://10.0.0.50:3000   # LXC の IP
+    originRequest:
+      # SSE は長時間つながり続ける。既定 (30s) だと切れてしまう
+      connectTimeout: 30s
+      # チャンク転送を無効にしない。無効にすると SSE が届かない
+      disableChunkedEncoding: false
+  - service: http_status:404
+```
+
+```bash
+cloudflared tunnel route dns <トンネル ID> wall.example.com
+systemctl restart cloudflared
+```
+
+### SSE (会場モニターへの配信) について
+
+- アプリは 15 秒ごとに ping を送るため、Cloudflare のアイドルタイムアウト
+  (約 100 秒) には掛かりません
+- レスポンスには `Cache-Control: no-cache, no-transform` と
+  `X-Accel-Buffering: no` を付けています。Cloudflare 側で
+  `/api/stream` を **キャッシュしない**ままにしてください
+  (既定でキャッシュされませんが、キャッシュルールを足すときは除外する)
+- Rocket Loader や Auto Minify のような、応答を書き換える機能は
+  会場モニターに対して有効にしないでください
+
+### 管理画面だけ Cloudflare Access で守る
+
+会場モニター (`/wall`, `/e/*/wall/*`) は来場者が開くため**公開のまま**にし、
+管理画面だけを保護します。
+
+| パス | 扱い |
+| --- | --- |
+| `/admin`, `/api/admin/*` | Cloudflare Access のポリシーを適用する |
+| `/wall`, `/e/*/wall/*`, `/api/stream`, `/assets/*` | 公開のまま |
+
+Access を全体に掛けると来場者が会場モニターを開けなくなります。`/api/stream`
+にも掛けないでください (モニターが繋がりません)。
+
+### 確認
+
+```bash
+# 親ホストから LXC のアプリへ届くこと
+curl -s http://10.0.0.50:3000/api/health
+
+# 公開 URL から届くこと
+curl -s https://wall.example.com/api/health
+
+# SSE が流れ続けること (ping が 15 秒ごとに出る)
+curl -N https://wall.example.com/api/stream | head -20
+```
+
+---
+
+## 4. リバースプロキシの設定 (最重要)
 
 **SSE のバッファリングを無効化しないと、投稿が届かない、あるいは数十秒遅れて
 まとめて届くという症状になります。**
@@ -289,7 +388,7 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 
 ---
 
-## 4. ネットワーク要件
+## 5. ネットワーク要件
 
 ### サーバーからの送信
 
@@ -310,7 +409,7 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 
 ---
 
-## 5. 運用
+## 6. 運用
 
 ### 状態の永続化
 
@@ -359,7 +458,7 @@ SQLite は WAL モードで動くため、`wall.db` に加えて `wall.db-wal` �
 
 ---
 
-## 6. トラブルシューティング
+## 7. トラブルシューティング
 
 | 症状 | 原因 | 対処 |
 | --- | --- | --- |
@@ -373,7 +472,7 @@ SQLite は WAL モードで動くため、`wall.db` に加えて `wall.db-wal` �
 
 ---
 
-## 7. ホスティング先の検討
+## 8. ホスティング先の検討
 
 ### Cloudflare Workers / Durable Objects — 推奨しない
 

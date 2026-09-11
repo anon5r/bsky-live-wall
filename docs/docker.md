@@ -8,8 +8,8 @@
 
 | 方法 | 向いている場面 |
 | --- | --- |
-| **Compose (Caddy 付き)** | インターネットへ公開する。TLS の取得・更新まで任せたい |
-| **Compose (アプリだけ)** | 既にプロキシがある。TLS は別で終端している |
+| **Compose (既定: アプリだけ)** | 前段にプロキシがある。Cloudflare Tunnel、既存の nginx、自宅の LXC など |
+| **Compose + Caddy プロファイル** | VPS 1 台で完結させる。TLS の取得・更新まで任せたい |
 | **`docker run`** | 1 台で試す。オーケストレーションが別にある |
 | **公開イメージ (ghcr.io)** | ビルドせずに配布物を使う |
 
@@ -74,10 +74,10 @@ docker pull ghcr.io/anon5r/bsky-live-wall:latest
 単一テナント運用で画像も使わない場合、状態はすべてメモリ上にあり、ボリュームは
 空のままです (当てておいて困ることはありません)。
 
-## 1. Compose (Caddy 付き)
+## 1. Compose (既定: アプリだけ)
 
-TLS は Caddy が自動取得します。公開するホスト名の DNS がこのサーバーを指していて、
-80 / 443 がインターネットから到達できることが前提です。
+`docker compose up -d` はアプリだけを起動し、**ホストの `127.0.0.1:3000`** に出します。
+公開は前段のプロキシ (Cloudflare Tunnel、nginx など) に任せる形です。
 
 ```bash
 git clone https://github.com/anon5r/bsky-live-wall.git
@@ -91,30 +91,26 @@ cp .env.example .env
 HASHTAGS=myevent2026
 EVENT_TITLE=My Event 2026
 
-# リモート公開に必須 (openssl rand -hex 32)
+# 前段にプロキシがあるなら必須 (openssl rand -hex 32)
 ADMIN_TOKEN=...
-
-# compose.yaml が参照する公開ホスト名
-WALL_DOMAIN=wall.example.com
 ```
 
-`TRUST_PROXY=true` は `compose.yaml` 側で設定済みなので `.env` には不要です。
+`TRUST_PROXY=true` と `HOST=0.0.0.0` は `compose.yaml` 側で設定済みなので
+`.env` には不要です。
 
 ```bash
 docker compose up -d
 docker compose logs -f app
 ```
 
-| URL | 用途 |
-| --- | --- |
-| `https://wall.example.com/wall` | 会場モニター |
-| `https://wall.example.com/admin` | 管理画面 |
-| `https://wall.example.com/api/health` | ヘルスチェック |
+| 変数 | 既定 | 用途 |
+| --- | --- | --- |
+| `BIND_ADDR` | `127.0.0.1` | ホストのどのアドレスに出すか。別ホストの cloudflared などから叩くなら `0.0.0.0` |
+| `BIND_PORT` | `3000` | ホスト側のポート |
 
-### コンテナの中身
-
-- `app` — 本体。ホストへはポートを公開せず、Caddy 経由のみ (`expose`)
-- `caddy` — TLS 終端とリバースプロキシ。設定は `deploy/Caddyfile`
+`BIND_ADDR=0.0.0.0` にした場合は、**届く経路をファイアウォールで絞ってください**
+(トンネルを動かしているホストだけで十分です)。Cloudflare Tunnel 経由の構成は
+[deployment.md の「Cloudflare Tunnel で公開する」](./deployment.md) にまとめています。
 
 `app` には次の制限を掛けています。
 
@@ -125,25 +121,29 @@ deploy.resources.limits.memory: 512M
 logging: json-file (10MB × 3)
 ```
 
-## 2. Compose (アプリだけ)
+## 2. Compose + Caddy (VPS 1 台で完結させる)
 
-既にプロキシがある場合は `caddy` を使わず、アプリだけを動かします。
+TLS 終端まで任せたい場合は `caddy` プロファイルを足します。証明書は
+Let's Encrypt から自動取得します。公開するホスト名の DNS がこのサーバーを指していて、
+80 / 443 がインターネットから到達できることが前提です。
 
-```yaml
-# compose.override.yaml
-services:
-  app:
-    ports:
-      # ホストの loopback にだけ公開し、外部への露出はプロキシ側で制御する
-      - "127.0.0.1:3000:3000"
-
-  caddy:
-    profiles: ["donotstart"]
+```dotenv
+# .env に追加
+WALL_DOMAIN=wall.example.com
 ```
 
 ```bash
-docker compose up -d app
+docker compose --profile caddy up -d
 ```
+
+| URL | 用途 |
+| --- | --- |
+| `https://wall.example.com/wall` | 会場モニター |
+| `https://wall.example.com/admin` | 管理画面 |
+| `https://wall.example.com/api/health` | ヘルスチェック |
+
+Caddy の設定は `deploy/Caddyfile` です。SSE (`/api/stream`) をバッファリングしない
+設定が入っています。プロファイルを付けずに `up` した場合、Caddy は起動しません。
 
 ## 3. `docker run`
 
@@ -164,7 +164,8 @@ docker run -d --name bsky-live-wall \
 ```
 
 `-p 127.0.0.1:3000:3000` でホストの loopback にのみ公開し、外部への露出は
-リバースプロキシ側で制御します。
+リバースプロキシ側で制御します。別ホストのトンネルから叩く場合は
+`-p 3000:3000` にしたうえで、ファイアウォールで経路を絞ってください。
 
 ## 環境変数
 
@@ -176,6 +177,8 @@ docker run -d --name bsky-live-wall \
 | `HOST` | `0.0.0.0` | コンテナ外から届くようにする。`compose.yaml` で設定済み |
 | `PORT` | `3000` | 変えるなら公開ポートも合わせる |
 | `TRUST_PROXY` | `true` | プロキシ配下では必須。`ADMIN_TOKEN` とセットで設定する |
+| `BIND_ADDR` | `127.0.0.1` | ホスト側の待ち受けアドレス。トンネルが別ホストなら `0.0.0.0` |
+| `BIND_PORT` | `3000` | ホスト側のポート |
 | `ADMIN_TOKEN` | 必須 | `TRUST_PROXY=true` で未設定だと起動しない |
 | `DATA_FILE` | `./data/wall.db` | 既定のままで `/app/data` (ボリューム) に載る |
 | `UPLOAD_DIR` | `./data/uploads` | 同上 |
@@ -233,5 +236,6 @@ SQLite は WAL モードで動いています。停止中に取るのが確実�
 | 設定がコンテナの作り直しで消える | `/app/data` にボリュームを当てていない |
 | 画像をアップロードすると失敗する | 同上。`read_only` のまま `/app/data` が無いと書けない |
 | 管理画面が古いまま | イメージを作り直していない (`docker compose build app`) |
+| 別ホストのトンネルから繋がらない | `BIND_ADDR=0.0.0.0` にしていない、またはファイアウォールで塞がれている |
 | `docker ps` が unhealthy | `HEALTHCHECK` が `/api/health` に届いていない。`PORT` を変えたなら合わせる |
 | Jetstream が「切断」のまま | 送信方向の wss が塞がれている。ホスト側のファイアウォールを確認する |

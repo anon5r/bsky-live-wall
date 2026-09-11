@@ -1,9 +1,16 @@
 # リモートから利用する構成。
-# Caddy が TLS を終端し、アプリへ転送する。
+#
+# 既定ではアプリだけを動かし、ホストの 127.0.0.1:3000 に出す。
+# 前段のプロキシ (Cloudflare Tunnel や既存の nginx など) から叩く想定。
 #
 #   1. .env を用意する (ADMIN_TOKEN を必ず設定する)
-#   2. WALL_DOMAIN に公開するホスト名を設定する
-#   3. docker compose up -d
+#   2. docker compose up -d
+#
+# TLS 終端ごと任せたい場合 (VPS で単体運用するときなど) は Caddy を足す。
+# 証明書は Let's Encrypt から自動取得する。
+#
+#   1. .env に WALL_DOMAIN を設定する
+#   2. docker compose --profile caddy up -d
 services:
   app:
     build: .
@@ -20,7 +27,12 @@ services:
       PORT: "3000"
     expose:
       - "3000"
-    # ホストへは直接公開しない。Caddy 経由のみとする。
+    ports:
+      # 前段のプロキシから叩くために出しておく。
+      # 既定はホストの loopback のみ。別ホストの cloudflared などから
+      # 届かせる場合は .env で BIND_ADDR=0.0.0.0 にする (経路の制限は
+      # ファイアウォール側で行うこと)。
+      - "${BIND_ADDR:-127.0.0.1}:${BIND_PORT:-3000}:3000"
     networks:
       - wall
     # 書けるのは /tmp と /app/data だけにする。
@@ -43,14 +55,19 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # TLS 終端まで任せる場合だけ起動する:
+  #   docker compose --profile caddy up -d
   caddy:
     image: caddy:2-alpine
+    profiles: ["caddy"]
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     environment:
-      WALL_DOMAIN: ${WALL_DOMAIN:?WALL_DOMAIN を .env に設定してください}
+      # 必須。未設定のまま caddy プロファイルを起動すると Caddy 側でエラーになる。
+      # (compose はプロファイルに関係なく展開するため、ここでは必須指定にしない)
+      WALL_DOMAIN: ${WALL_DOMAIN:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
