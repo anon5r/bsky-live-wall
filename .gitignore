@@ -7,3 +7,5 @@ dist/
 data/
 # 管理画面は src/admin から Vite でビルドする生成物
 public/admin/
+# デザイン検討用のキャンバス (生成物。共有は Artifact のリンクで行う)
+design/

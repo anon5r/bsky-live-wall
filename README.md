@@ -433,6 +433,23 @@ MIT
 | 一時停止 / 全消去 | |
 | 個別の非表示・投稿者ブロックと、その復元 | |
 
+## CI (GitHub Actions)
+
+self-hosted runner で動く 2 つのワークフローがあります。
+
+| ワークフロー | 生成物 | きっかけ |
+| --- | --- | --- |
+| `build` | 実行に必要なものだけを固めた `bsky-live-wall-<sha>.tar.gz` (LXC などへ置く用) | push (main) / タグ / PR / 手動 |
+| `docker` | `ghcr.io/<owner>/bsky-live-wall` のイメージ | push (main) / タグ / PR (ビルドのみ) / 手動 |
+
+`build` は型チェック・ビルド・テストを通してから固めます。中身は `dist/` と `public/`、
+`package.json` / `pnpm-lock.yaml` / `.env.example` で、依存は展開先で
+`pnpm install --prod --frozen-lockfile` して入れます (実行環境の Node と libc に
+合わせて解決させるため)。タグを打つとリリースにも添付します。
+
+runner には Node 24 以上と corepack (pnpm)、`docker` ワークフローを使う場合は
+Docker と Buildx が必要です。
+
 ## リモートから使う (コンテナ / LXC)
 
 サーバーで常時稼働させ、リモートから利用する場合の手順は
