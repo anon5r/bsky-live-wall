@@ -104,7 +104,9 @@ URL クエリで `.env` の設定を上書きできます。
 - 待機モードは「投稿が届いたら通常へ戻す」を有効にしておくと、最初の投稿で自動的に戻ります
   (休憩・終演は運営が戻すまで保ちます)
 - 通常モード以外では、QR コードなどの画像を 1 枚出せます (PNG / JPEG / WebP、2 MB まで)。
-  位置と大きさ、添える一言を選べます。実体は `UPLOAD_DIR` にファイルとして保存します
+  位置と大きさ、添える一言を選べます。保存先はローカルのディスクか、S3 互換ストレージ
+  (Cloudflare R2 / MEGA S4 / AWS S3 / Backblaze B2) を選べます
+  ([docs/storage.md](./docs/storage.md))
 
 | 設定 | 既定 | 表示 |
 | --- | --- | --- |
@@ -141,7 +143,8 @@ URL クエリで `.env` の設定を上書きできます。
 | `SHOW_BLUESKY_LOGO` | `true` | イベント名の「Bluesky」をロゴアイコンで表示するか (テナント単位) |
 | `ANIMATE_TITLE_GRADIENT` | `false` | タイトルのグラデーションを動かすか (テナント単位) |
 | `BACKFILL_PRESETS` | `30,120,360,1440` | 管理画面の「遡る時間」の候補 (分)。テナントごとに足し引きできる |
-| `UPLOAD_DIR` | `./data/uploads` | 会場モニターに出す任意画像の保存先 |
+| `UPLOAD_DIR` | `./data/uploads` | 会場モニターに出す任意画像の保存先 (ローカル保存のとき) |
+| `STORAGE_DRIVER` | `local` | `s3` で S3 互換ストレージ (R2 / MEGA S4 / AWS S3 / B2) に保存する |
 | `WALL_SHOW_CLOCK` | `true` | 会場モニター右上の時計を表示するか (ウォールごとに上書き可) |
 | `WALL_SHOW_SECONDS` | `true` | 時計に秒を表示するか (ウォールごとに上書き可) |
 | `ADMIN_TOKEN` | 空 | 管理 API のトークン。空の場合は localhost からのみ操作可。**リモート公開時は必須** |
@@ -450,12 +453,23 @@ self-hosted runner で動く 2 つのワークフローがあります。
 runner には Node 24 以上と corepack (pnpm)、`docker` ワークフローを使う場合は
 Docker と Buildx が必要です。
 
+## ドキュメント
+
+| 目的 | 文書 |
+| --- | --- |
+| Node で直接動かす (会場 PC / LXC)。必要スペックと容量もここ | [docs/setup.md](./docs/setup.md) |
+| コンテナで動かす。永続化・更新・バックアップ | [docs/docker.md](./docs/docker.md) |
+| 画像の保存先 (ローカル / R2・S3・B2 など) | [docs/storage.md](./docs/storage.md) |
+| リモート公開 (プロキシ・TLS・認証・ネットワーク要件) | [docs/deployment.md](./docs/deployment.md) |
+| 当日の運用とトラブルシュート | [docs/operations.md](./docs/operations.md) |
+| 設計と構成 | [docs/architecture.md](./docs/architecture.md) / [docs/multi-tenant-design.md](./docs/multi-tenant-design.md) |
+
 ## リモートから使う (コンテナ / LXC)
 
 サーバーで常時稼働させ、リモートから利用する場合の手順は
 [docs/deployment.md](./docs/deployment.md) を参照してください。
-Docker Compose (Caddy による TLS 自動取得)、Docker 単体、LXC + systemd の
-3 通りの構成と、リバースプロキシの設定例を用意しています。
+コンテナの設定は [docs/docker.md](./docs/docker.md)、Node で直接動かす場合は
+[docs/setup.md](./docs/setup.md) にまとめています。
 
 ```bash
 # 最短手順 (Docker Compose)

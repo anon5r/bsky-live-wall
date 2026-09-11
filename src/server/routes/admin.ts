@@ -8,9 +8,6 @@
  * (`permission.ts` の `checkTenantPermission`)。認証さえ通れば他人のテナントを
  * 操作できてしまうのを防ぐため。single モードでは従来どおりメンバーの概念を使わない。
  */
-import { randomBytes } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppConfig } from '../../shared/config.js';
 import type { TenantRuntime } from '../../shared/ingest-contracts.js';
@@ -38,6 +35,7 @@ import {
 import { checkTenantPermission } from '../permission.js';
 import { getTenant } from '../tenant-context.js';
 import { resolveActor } from '../oauth/client.js';
+import { IMAGE_EXTENSIONS, type ImageStore } from '../image-store.js';
 
 const logger = createLogger('admin');
 
@@ -328,6 +326,7 @@ export function registerAdminRoutes(
   app: FastifyInstance,
   config: AppConfig,
   sessions: AdminSessionStore,
+  images: ImageStore
 ): void {
   const adminAuth = createAdminAuth(config, sessions);
 
@@ -765,11 +764,6 @@ export function registerAdminRoutes(
 
   /** 画像の上限。会場モニターに出す QR や案内を想定した大きさ。 */
   const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-  const IMAGE_EXTENSIONS: Record<string, string> = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/webp': 'webp',
-  };
 
   const SCREEN_TEXT_KEYS = [
     'waitingHeadline',
@@ -892,20 +886,18 @@ export function registerAdminRoutes(
       if (bytes.length === 0) return badRequest(reply, '画像を読み取れませんでした');
       if (bytes.length > MAX_IMAGE_BYTES) return badRequest(reply, '画像は 2 MB までです');
 
-      const previous = wall.getScreen();
-      // ファイル名は推測できない乱数にする (会場モニターは公開ページのため)。
-      const file = `${randomBytes(16).toString('hex')}.${IMAGE_EXTENSIONS[mime]}`;
+      const previousKey = wall.getScreenImageKey();
+      let stored;
       try {
-        await mkdir(config.tenancy.uploadDir, { recursive: true });
-        await writeFile(join(config.tenancy.uploadDir, file), bytes);
+        stored = await images.put(bytes, mime);
       } catch (err) {
         logger.warn('画像を保存できませんでした', err);
         return reply.code(500).send({ error: 'write_failed', message: '画像を保存できませんでした' });
       }
 
-      const applied = wall.setScreenImage({ file, mime, updatedAt: Date.now() });
+      const applied = wall.setScreenImage({ file: stored.key, mime, updatedAt: Date.now() });
       // 古い画像は置いていても使われないので消す。失敗は無視 (表示には影響しない)。
-      await removeUploadedImage(previous.imageUrl);
+      if (previousKey) await images.remove(previousKey);
       recordAudit('screen-image', `${wall.id}: ${bytes.length} bytes`, request, undefined, sessions);
       return reply.send(applied);
     }
@@ -917,25 +909,12 @@ export function registerAdminRoutes(
     const wall = pickWall(tenant, request.query.wall);
     if (!wall) return wallNotFound(reply);
 
-    const previous = wall.getScreen();
+    const previousKey = wall.getScreenImageKey();
     const applied = wall.setScreenImage(null);
-    await removeUploadedImage(previous.imageUrl);
+    if (previousKey) await images.remove(previousKey);
     recordAudit('screen-image', `${wall.id}: 削除`, request, undefined, sessions);
     return reply.send(applied);
   });
-
-  /** 配信 URL からファイル名を取り出して消す。存在しなくてもエラーにしない。 */
-  async function removeUploadedImage(url: string | null): Promise<void> {
-    if (!url) return;
-    const name = decodeURIComponent(url.replace('/uploads/', '').split('?')[0] ?? '');
-    // パス区切りを含む名前は受け付けない (保存時は乱数 + 拡張子のみ)。
-    if (!name || name.includes('/') || name.includes('..')) return;
-    try {
-      await rm(join(config.tenancy.uploadDir, name), { force: true });
-    } catch {
-      // 消せなくても表示には影響しない
-    }
-  }
 
   // ---- 除外キーワード ----
 
