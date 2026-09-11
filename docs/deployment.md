@@ -150,95 +150,35 @@ localhost からでも認証なしに管理 API を操作できません。`ADMI
 
 ---
 
-## 1. Docker Compose (推奨)
+## 1. Docker (Compose / 単体)
 
-TLS 終端に Caddy を使い、証明書を自動取得する構成です。
-
-### 前提
-
-- 公開するホスト名の DNS が、このサーバーを指していること
-- 80 番と 443 番がインターネットから到達できること
-
-### 手順
-
-```bash
-git clone <このリポジトリ>
-cd bsky-live-wall
-
-cp .env.example .env
-```
-
-`.env` を編集します。
+コンテナでの構成・永続化・更新手順は [docker.md](./docker.md) にまとめています。
+公開時に必ず必要な設定は次の 2 つです。
 
 ```dotenv
-# イベント設定
-HASHTAGS=myevent2026
-EVENT_TITLE=My Event 2026
-
-# リモート公開に必須
 ADMIN_TOKEN=<openssl rand -hex 32 の出力>
-
-# 公開するホスト名 (compose.yaml が参照する)
-WALL_DOMAIN=wall.example.com
+WALL_DOMAIN=wall.example.com   # compose.yaml が参照する公開ホスト名
 ```
 
-`TRUST_PROXY=true` は `compose.yaml` 側で設定済みのため、`.env` に書く必要はありません。
+`TRUST_PROXY=true` は `compose.yaml` 側で設定済みです。
 
 ```bash
+cp .env.example .env    # 上の 2 つを設定する
 docker compose up -d
-docker compose logs -f app
 ```
 
 | URL | 用途 |
 | --- | --- |
 | `https://wall.example.com/wall` | 会場モニター |
-| `https://wall.example.com/admin` | 管理画面 (トークンを入力) |
+| `https://wall.example.com/admin` | 管理画面 |
 | `https://wall.example.com/api/health` | ヘルスチェック |
 
-### 設定を変更したとき
-
-`.env` は起動時にしか読まれません。
-
-```bash
-docker compose up -d --force-recreate app
-```
-
-### 更新
-
-```bash
-git pull
-docker compose build app
-docker compose up -d app
-```
+`MULTI_TENANT=true` や画面モードの画像を使う場合は、`/app/data` にボリュームを
+当てる必要があります (`compose.yaml` では設定済み)。詳細は [docker.md](./docker.md)。
 
 ---
 
-## 2. Docker 単体 (プロキシは別途用意する場合)
-
-```bash
-docker build -t bsky-live-wall .
-
-docker run -d --name bsky-live-wall \
-  --restart unless-stopped \
-  -p 127.0.0.1:3000:3000 \
-  --env-file .env \
-  -e TRUST_PROXY=true \
-  -e HOST=0.0.0.0 \
-  --read-only --tmpfs /tmp \
-  --security-opt no-new-privileges:true \
-  --memory 512m \
-  bsky-live-wall
-```
-
-`-p 127.0.0.1:3000:3000` としてホストの loopback にのみ公開し、外部への露出は
-リバースプロキシ側で制御します。
-
-イメージの実測値: **189MB**、実行ユーザーは非 root (`node`, uid 1000)。
-`HEALTHCHECK` を内蔵しているため `docker ps` の STATUS で健全性を確認できます。
-
----
-
-## 3. LXC / 通常の Linux ホスト (systemd)
+## 2. LXC / 通常の Linux ホスト (systemd)
 
 コンテナ化せず、アプリケーションとして直接動かす構成です。
 
@@ -311,12 +251,12 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 ### LXC コンテナ側の注意
 
 - **非特権コンテナで問題ありません。** 特権は不要です。
-- 送信方向のインターネット接続が必要です (下記 5 章)。
+- 送信方向のインターネット接続が必要です (下記 4 章)。
 - メモリは 512MB で足ります。`BUFFER_SIZE` を大きくする場合は増やしてください。
 
 ---
 
-## 4. リバースプロキシの設定 (最重要)
+## 3. リバースプロキシの設定 (最重要)
 
 **SSE のバッファリングを無効化しないと、投稿が届かない、あるいは数十秒遅れて
 まとめて届くという症状になります。**
@@ -349,7 +289,7 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 
 ---
 
-## 5. ネットワーク要件
+## 4. ネットワーク要件
 
 ### サーバーからの送信
 
@@ -370,7 +310,7 @@ docker pull ghcr.io/<owner>/bsky-live-wall:latest
 
 ---
 
-## 6. 運用
+## 5. 運用
 
 ### 状態の永続化
 
@@ -419,7 +359,7 @@ SQLite は WAL モードで動くため、`wall.db` に加えて `wall.db-wal` �
 
 ---
 
-## 7. トラブルシューティング
+## 6. トラブルシューティング
 
 | 症状 | 原因 | 対処 |
 | --- | --- | --- |
@@ -433,7 +373,7 @@ SQLite は WAL モードで動くため、`wall.db` に加えて `wall.db-wal` �
 
 ---
 
-## 8. ホスティング先の検討
+## 7. ホスティング先の検討
 
 ### Cloudflare Workers / Durable Objects — 推奨しない
 

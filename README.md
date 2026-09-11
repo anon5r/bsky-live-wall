@@ -450,12 +450,22 @@ self-hosted runner で動く 2 つのワークフローがあります。
 runner には Node 24 以上と corepack (pnpm)、`docker` ワークフローを使う場合は
 Docker と Buildx が必要です。
 
+## ドキュメント
+
+| 目的 | 文書 |
+| --- | --- |
+| Node で直接動かす (会場 PC / LXC)。必要スペックと容量もここ | [docs/setup.md](./docs/setup.md) |
+| コンテナで動かす。永続化・更新・バックアップ | [docs/docker.md](./docs/docker.md) |
+| リモート公開 (プロキシ・TLS・認証・ネットワーク要件) | [docs/deployment.md](./docs/deployment.md) |
+| 当日の運用とトラブルシュート | [docs/operations.md](./docs/operations.md) |
+| 設計と構成 | [docs/architecture.md](./docs/architecture.md) / [docs/multi-tenant-design.md](./docs/multi-tenant-design.md) |
+
 ## リモートから使う (コンテナ / LXC)
 
 サーバーで常時稼働させ、リモートから利用する場合の手順は
 [docs/deployment.md](./docs/deployment.md) を参照してください。
-Docker Compose (Caddy による TLS 自動取得)、Docker 単体、LXC + systemd の
-3 通りの構成と、リバースプロキシの設定例を用意しています。
+コンテナの設定は [docs/docker.md](./docs/docker.md)、Node で直接動かす場合は
+[docs/setup.md](./docs/setup.md) にまとめています。
 
 ```bash
 # 最短手順 (Docker Compose)

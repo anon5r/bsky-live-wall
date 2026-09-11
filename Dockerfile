@@ -33,6 +33,10 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --chown=node:node package.json ./
 
+# 永続データの置き場 (マルチテナントの SQLite、会場モニターに出す画像)。
+# 名前付きボリュームを当てたときに node が書けるよう、所有者ごと用意しておく。
+RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
+
 USER node
 
 EXPOSE 3000

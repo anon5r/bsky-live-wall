@@ -23,10 +23,14 @@ services:
     # ホストへは直接公開しない。Caddy 経由のみとする。
     networks:
       - wall
-    # 状態はすべてメモリ上にあるため、揮発してよい。
+    # 書けるのは /tmp と /app/data だけにする。
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      # マルチテナントのテナント設定 (SQLite) と、会場モニターに出す画像。
+      # 単一テナント運用では空のままだが、当てておいて困らない。
+      - wall_data:/app/data
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -60,5 +64,6 @@ networks:
   wall:
 
 volumes:
+  wall_data:
   caddy_data:
   caddy_config:
