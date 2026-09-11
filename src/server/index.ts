@@ -78,7 +78,8 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
   // OAuth の client_id とフィードの did:web は固定 URL である必要があるため、
   // 階層を付けずにルート直下へ置く。ヘルスチェック・セッション管理・テナント
   // 一覧もテナント解決の対象にしない (解決できない/する必要が無いため)。
-  const oauthRuntime = await registerOAuthRoutes(app, config, sessions);
+  // 招待されたメンバーもログインできるよう、メンバー表を引ける registry を渡す。
+  const oauthRuntime = await registerOAuthRoutes(app, config, sessions, registry);
   registerHealthRoutes(app, registry, hubs);
   registerAdminSessionRoutes(app, config, sessions);
   registerTenantsRoutes(app, config, registry, sessions, hubs);
@@ -145,7 +146,7 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
     });
   }
 
-  await registerStatic(app, registry, config.tenancy.mode);
+  await registerStatic(app, registry, config.tenancy.mode, config.tenancy.uploadDir);
 
   app.addHook('onClose', (_instance, done) => {
     hubs.closeAll();

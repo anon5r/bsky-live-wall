@@ -16,6 +16,10 @@
     openTenant,
     startSystemPolling,
     stopSystemPolling,
+    loadSystemAccounts,
+    setAccountMembership,
+    requestRemoveMembership,
+    requestRevokeAccountSessions,
   } from '../lib/store.svelte.js';
   import { enterKey } from '../lib/ime.js';
 
@@ -79,6 +83,51 @@
       return '-';
     }
   }
+
+  // ---- 利用者アカウント ----
+  let tab = $state('tenants');
+  let accountsLoaded = false;
+  let selectedDid = $state('');
+
+  const accounts = $derived(store.systemAccounts || []);
+  const selectedAccount = $derived(accounts.find((a) => a.did === selectedDid) || accounts[0] || null);
+
+  $effect(() => {
+    if (tab === 'accounts' && !accountsLoaded) {
+      accountsLoaded = true;
+      loadSystemAccounts();
+    }
+  });
+
+  function initialOf(handle) {
+    return (handle || '?').replace(/^@/, '').charAt(0).toUpperCase();
+  }
+
+  function formatLastSeen(ts) {
+    if (!ts) return '-';
+    try {
+      return new Date(ts).toLocaleString('ja-JP');
+    } catch {
+      return '-';
+    }
+  }
+
+  function onMembershipRoleChange(account, membership, evt) {
+    const next = evt.target && evt.target.value;
+    if (!next || next === membership.role) return;
+    setAccountMembership(account, membership.tenantId, next);
+  }
+
+  let addTenantSelectEl = $state(null);
+  let addRoleSelectEl = $state(null);
+
+  function addMembership() {
+    if (!selectedAccount) return;
+    const tenantId = addTenantSelectEl && addTenantSelectEl.value;
+    const role = (addRoleSelectEl && addRoleSelectEl.value) || 'moderator';
+    if (!tenantId) return;
+    setAccountMembership(selectedAccount, tenantId, role);
+  }
 </script>
 
 <div class="app">
@@ -96,7 +145,18 @@
     </div>
   </header>
 
+  <div class="system-tabs">
+    <button type="button" class={'system-tab' + (tab === 'tenants' ? ' is-active' : '')} onclick={() => (tab = 'tenants')}>
+      <i class="fa-solid fa-building fa-fw" aria-hidden="true"></i> テナント
+    </button>
+    <button type="button" class={'system-tab' + (tab === 'accounts' ? ' is-active' : '')} onclick={() => (tab = 'accounts')}>
+      <i class="fa-solid fa-users-gear fa-fw" aria-hidden="true"></i> 利用者アカウント
+      <span class="panel-count">{accounts.length}</span>
+    </button>
+  </div>
+
   <main class="main-grid">
+  {#if tab === 'tenants'}
     <!-- 全体状況 -->
     <section class="panel panel-full">
       <h2 class="panel-title"><i class="fa-solid fa-gauge-high fa-fw" aria-hidden="true"></i> 全体状況</h2>
@@ -234,5 +294,119 @@
         <p class="empty-msg">監査ログはまだありません。</p>
       {/if}
     </section>
+  {:else}
+    <section class="panel panel-full">
+      <h2 class="panel-title">
+        <i class="fa-solid fa-users-gear fa-fw" aria-hidden="true"></i> 利用者アカウント
+        <span class="panel-count">{accounts.length}</span>
+      </h2>
+      <p class="panel-subtitle">
+        すべてのテナントを横断した一覧です。所属と役割の付け替え、セッションの失効をここで行います。
+      </p>
+
+      {#if accounts.length > 0}
+        <ul class="member-list">
+          {#each accounts as a (a.did)}
+            <li class={'member-item' + (selectedAccount && selectedAccount.did === a.did ? ' is-selected' : '')}>
+              <button
+                type="button"
+                class="account-select"
+                aria-label={a.handle + ' を選択'}
+                onclick={() => (selectedDid = a.did)}
+              >
+                <span class={'member-avatar' + (a.isSystemAdmin ? ' member-avatar-owner' : '')}>
+                  <span class="member-avatar-initial" aria-hidden="true">{initialOf(a.handle)}</span>
+                  <i class={(a.isSystemAdmin ? 'fa-solid fa-user-shield' : 'fa-solid fa-user') + ' member-avatar-badge'} aria-hidden="true"></i>
+                </span>
+              </button>
+
+              <div class="member-main">
+                <div class="member-handle">
+                  {a.handle}
+                  {#if a.isSystemAdmin}
+                    <span class="account-admin-badge">システム管理者</span>
+                  {/if}
+                </div>
+                <div class="member-meta">
+                  <span class="member-did" title={a.did}>{a.did}</span>
+                  <span class="member-added">最終ログイン: {formatLastSeen(a.lastSeenAt)}</span>
+                </div>
+                <div class="account-memberships">
+                  {#each a.memberships as m (m.tenantId)}
+                    <span class="account-membership">
+                      <span class="account-membership-name">{m.tenantName}</span>
+                      <wa-select
+                        size="s"
+                        class="account-role-select"
+                        value={m.role}
+                        aria-label={m.tenantName + ' での役割'}
+                        onchange={(evt) => onMembershipRoleChange(a, m, evt)}
+                      >
+                        <wa-option value="owner">オーナー</wa-option>
+                        <wa-option value="moderator">モデレーター</wa-option>
+                      </wa-select>
+                      <button
+                        type="button"
+                        class="term-row-remove"
+                        aria-label={m.tenantName + ' から外す'}
+                        onclick={() => requestRemoveMembership(a, m)}
+                      >
+                        <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+                      </button>
+                    </span>
+                  {:else}
+                    <span class="field-note">所属しているテナントはありません。</span>
+                  {/each}
+                </div>
+              </div>
+
+              <div class="member-actions">
+                <span class={'wall-chip' + (a.sessions > 0 ? ' wall-chip-warn' : '')}>
+                  <strong>{a.sessions}</strong> セッション
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-danger btn-small"
+                  disabled={a.sessions === 0}
+                  onclick={() => requestRevokeAccountSessions(a)}
+                >
+                  <i class="fa-solid fa-user-lock fa-fw" aria-hidden="true"></i> 失効
+                </button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="empty-msg">アカウントがありません。</p>
+      {/if}
+
+      {#if selectedAccount}
+        <div class="field">
+          <label for="account-add-tenant">
+            <i class="fa-solid fa-user-plus fa-fw" aria-hidden="true"></i>
+            「{selectedAccount.handle}」をテナントに追加
+          </label>
+          <div class="field-row">
+            <wa-select id="account-add-tenant" bind:this={addTenantSelectEl} aria-label="追加するテナント">
+              {#each store.systemTenants || [] as t (t.id)}
+                <wa-option value={t.id}>{t.name}</wa-option>
+              {/each}
+            </wa-select>
+            <wa-select bind:this={addRoleSelectEl} value="moderator" aria-label="役割">
+              <wa-option value="moderator">モデレーター</wa-option>
+              <wa-option value="owner">オーナー</wa-option>
+            </wa-select>
+            <wa-button variant="brand" onclick={addMembership}>
+              <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> 追加
+            </wa-button>
+          </div>
+        </div>
+      {/if}
+
+      <p class="field-note">
+        システム管理者の権限は環境変数 <span class="wall-manage-id">SYSTEM_ADMINS</span> で決まります。この画面からは変更できません。
+      </p>
+    </section>
+  {/if}
   </main>
 </div>

@@ -1,8 +1,15 @@
 <script>
   import { onMount } from 'svelte';
-  import { store, init, logout, toggleTheme, showTenantSelect, showSystemAdmin } from './lib/store.svelte.js';
+  import {
+    store,
+    init,
+    logout,
+    toggleTheme,
+    showTenantSelect,
+    showSystemAdmin,
+    wallUrl,
+  } from './lib/store.svelte.js';
   import Login from './components/Login.svelte';
-  import SharedPanels from './components/SharedPanels.svelte';
   import WallTabs from './components/WallTabs.svelte';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
   import Toast from './components/Toast.svelte';
@@ -15,8 +22,7 @@
   });
 
   function openWall() {
-    const path = store.currentWallId ? '/wall/' + encodeURIComponent(store.currentWallId) : '/wall';
-    window.open(path, '_blank', 'noopener');
+    window.open(wallUrl(store.currentWallId), '_blank', 'noopener');
   }
 </script>
 
@@ -55,8 +61,7 @@
       </div>
     </header>
 
-    <main class="main-grid">
-      <SharedPanels />
+    <main class="console-main-area">
       <WallTabs />
     </main>
   </div>

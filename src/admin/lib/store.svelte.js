@@ -87,6 +87,22 @@ export const store = $state({
   systemTenants: [],
   systemAudit: [],
 
+  // テナント設定 (/api/admin/state 由来)
+  settings: {
+    title: '',
+    subtitle: '',
+    showBlueskyLogo: true,
+    backfillPresets: [],
+    allowReplies: true,
+    filterLabeled: true,
+    ngWords: [],
+    ngPatterns: [],
+  },
+
+  // システム管理: 利用者アカウント
+  systemAccounts: [],
+  systemAdminEditable: false,
+
   // ウォール
   currentWallId: loadWallId(),
   walls: [],
@@ -97,7 +113,17 @@ export const store = $state({
     wallName: '-',
     terms: [],
     paused: false,
+    // 承認モードは継承を解決済みの実効値。設定そのものは wall* / tenant* を見る。
     moderationMode: 'open',
+    moderationSource: 'tenant',
+    showBlueskyLogo: true,
+    screen: { mode: 'wall' },
+    screenImageUrl: null,
+    wallModerationMode: 'inherit',
+    keywordRequireApproval: true,
+    wallKeywordRequireApproval: 'inherit',
+    tenantModerationMode: 'open',
+    tenantKeywordRequireApproval: true,
     jetstream: { connected: false, host: null, reconnects: null },
     stats: { matched: 0, displayed: 0, rejected: 0, authors: 0, startedAt: 0 },
   },
@@ -268,6 +294,14 @@ async function refreshMe() {
   }
 }
 
+/**
+ * 会場モニターの URL。
+ * multi モードではテナント接頭辞が要る (`/wall/...` は管理画面へ戻されてしまう)。
+ */
+export function wallUrl(wallId) {
+  return tenantPath(wallId ? '/wall/' + encodeURIComponent(wallId) : '/wall');
+}
+
 export function showTenantSelect() {
   stopPolling();
   stopSystemPolling();
@@ -345,7 +379,7 @@ function readAuthError() {
   if (!err) return '';
   history.replaceState(null, '', location.pathname);
   if (err === 'not_allowed') {
-    return 'このアカウントは管理を許可されていません。主催者に ADMIN_ACTORS への追加を依頼してください。';
+    return 'このアカウントは管理を許可されていません。主催者に追加を依頼してください。';
   }
   return 'ログインに失敗しました。もう一度お試しください。';
 }
@@ -421,7 +455,11 @@ export async function oauthLogin(handle) {
     return false;
   }
   try {
-    const res = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ handle }) });
+    // 認可から戻ったときに、今開いている管理画面 (テナント直リンクを含む) へ帰る。
+    const res = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ handle, returnTo: location.pathname }),
+    });
     const data = res.ok ? await res.json() : null;
     if (!data || !data.url) {
       showLogin('アカウントを解決できませんでした。ハンドルを確認してください。');
@@ -513,19 +551,113 @@ export async function fetchState() {
   }
 }
 
+// ==========================================================
+// 差分反映
+// ==========================================================
+
+/**
+ * ポーリング結果はストアへ差分だけを書き込む。
+ *
+ * 取得したオブジェクトをそのまま代入すると、中身が前回と同じでも参照が
+ * 変わるため、その値を読んでいる全てのコンポーネント (入力欄を含む) が
+ * 3 秒ごとに再描画され、入力途中の値が巻き戻る。実際に変わったフィールド
+ * だけを書き換えることで、再描画の範囲を変更のあった領域に限定する。
+ */
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, i) => sameValue(item, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    return keysA.length === keysB.length && keysA.every((k) => sameValue(a[k], b[k]));
+  }
+  return false;
+}
+
+/** 既存オブジェクトを維持したまま、変わったキーだけを書き換える。 */
+function patchObject(target, next) {
+  for (const key of Object.keys(next)) {
+    const nextValue = next[key];
+    const current = target[key];
+    if (Array.isArray(nextValue) && Array.isArray(current)) {
+      patchList(current, nextValue);
+    } else if (isPlainObject(nextValue) && isPlainObject(current)) {
+      patchObject(current, nextValue);
+    } else if (!sameValue(current, nextValue)) {
+      target[key] = nextValue;
+    }
+  }
+  for (const key of Object.keys(target)) {
+    if (!(key in next)) delete target[key];
+  }
+}
+
+/**
+ * 配列を要素単位で差分反映する。keyOf を渡すと、並び替えや削除があっても
+ * 同じ要素は同じオブジェクトのまま扱えるため、無関係な行が再描画されない。
+ */
+function patchList(target, next, keyOf = null) {
+  const byKey = new Map();
+  if (keyOf) {
+    for (const item of target) {
+      const key = keyOf(item);
+      if (key != null && !byKey.has(key)) byKey.set(key, item);
+    }
+  }
+  for (let i = 0; i < next.length; i++) {
+    const nextItem = next[i];
+    let existing = null;
+    if (keyOf && isPlainObject(nextItem)) {
+      const key = keyOf(nextItem);
+      if (key != null) existing = byKey.get(key) || null;
+    } else if (isPlainObject(nextItem) && isPlainObject(target[i])) {
+      existing = target[i];
+    }
+    if (existing && isPlainObject(nextItem)) {
+      patchObject(existing, nextItem);
+      if (target[i] !== existing) target[i] = existing;
+    } else if (!sameValue(target[i], nextItem)) {
+      target[i] = nextItem;
+    }
+  }
+  if (target.length !== next.length) target.length = next.length;
+}
+
+/** 配列フィールドを差分反映する (中身が同じなら書き込まない)。 */
+function patchArrayField(key, next, keyOf = null) {
+  patchList(store[key], next || [], keyOf);
+}
+
+/** オブジェクトフィールドを差分反映する (null との行き来だけは代入する)。 */
+function patchObjectField(key, next) {
+  if (!isPlainObject(next) || !isPlainObject(store[key])) {
+    if (!sameValue(store[key], next)) store[key] = next;
+    return;
+  }
+  patchObject(store[key], next);
+}
+
 function renderState(data) {
   const state = data.state || {};
-  store.state = state;
+  patchObject(store.state, state);
   serverStartedAt = (state.stats && state.stats.startedAt) || 0;
   store.uptimeText = formatUptime(serverStartedAt);
 
-  store.walls = data.walls || [];
-  store.modLists = data.modLists || [];
-  store.hidden = data.hidden || [];
-  store.blocked = data.blocked || [];
-  store.jetstreamHosts = data.jetstreamHosts || [];
-  store.pending = data.pending || [];
-  store.recent = data.recent || [];
+  const postKey = (p) => (p ? p.uri : null);
+  patchArrayField('walls', data.walls, (w) => (w ? w.id : null));
+  patchArrayField('modLists', data.modLists, (l) => (l ? l.uri : null));
+  patchArrayField('hidden', data.hidden, postKey);
+  patchArrayField('blocked', data.blocked);
+  patchArrayField('jetstreamHosts', data.jetstreamHosts);
+  patchArrayField('pending', data.pending, postKey);
+  patchArrayField('recent', data.recent, postKey);
+  if (data.settings) patchObject(store.settings, data.settings);
 
   renderBackfillStatus(data.backfill);
   refreshSessionInfo();
@@ -535,6 +667,10 @@ function renderBackfillStatus(status) {
   if (!status) {
     store.backfill = null;
     return;
+  }
+  if (isPlainObject(store.backfill)) {
+    patchObject(store.backfill, status);
+    status = store.backfill;
   }
   if (!status.running && status.finishedAt && status.finishedAt !== lastBackfillFinishedAt) {
     if (lastBackfillFinishedAt !== 0) {
@@ -604,7 +740,7 @@ export function switchWall(id) {
   fetchState();
 }
 
-export async function createWall(name, terms) {
+export async function createWall(name, terms, backfillMinutes) {
   const trimmedName = (name || '').trim();
   if (!trimmedName) {
     showToast('ウォール名を入力してください');
@@ -623,7 +759,12 @@ export async function createWall(name, terms) {
       method: 'POST',
       body: JSON.stringify({
         name: trimmedName,
-        terms: terms.map((t) => ({ value: t.value, type: t.type })),
+        terms: terms.map((t) => ({
+          value: t.value,
+          type: t.type,
+          requireApproval: t.requireApproval || 'inherit',
+        })),
+        ...(backfillMinutes ? { backfillMinutes } : {}),
       }),
     });
     if (res.status === 401) {
@@ -705,11 +846,15 @@ export function parseTermInput(raw, isKeyword) {
   if (type === 'keyword' && value.length < 2) {
     return { error: 'キーワードは 2 文字以上で指定してください' };
   }
-  return { term: { value, type } };
+  return { term: { value, type, requireApproval: 'inherit' } };
 }
 
 export async function saveTerms(terms, successMessage) {
-  const payload = terms.map((t) => ({ value: t.value, type: t.type }));
+  const payload = terms.map((t) => ({
+    value: t.value,
+    type: t.type,
+    requireApproval: t.requireApproval || 'inherit',
+  }));
   try {
     await callAdminApi(tenantPath('/api/admin/terms'), { terms: payload, wall: store.currentWallId || undefined });
     showToast(successMessage);
@@ -750,6 +895,328 @@ export function requestRemoveTerm(term) {
     }
     saveTerms(next, '監視対象から外しました');
   });
+}
+
+/** 監視語ごとの承認要否を変更する。'inherit' | 'always' | 'never'。 */
+export function setTermApproval(term, requireApproval) {
+  const currentTerms = store.state.terms || [];
+  const next = currentTerms.map((t) =>
+    t.value === term.value && t.type === term.type ? { ...t, requireApproval } : t
+  );
+  return saveTerms(next, APPROVAL_LABELS[requireApproval] + ' に変更しました');
+}
+
+export const APPROVAL_LABELS = {
+  inherit: 'ウォールの設定に従う',
+  always: '必ず承認待ちにする',
+  never: '承認なしで表示する',
+};
+
+export const WALL_MODERATION_LABELS = {
+  inherit: 'テナントの設定に従う',
+  open: '公開 (承認なしで表示)',
+  approve: '承認制 (すべて承認待ち)',
+};
+
+export const WALL_KEYWORD_APPROVAL_LABELS = {
+  inherit: 'テナントの設定に従う',
+  always: '承認待ちにする',
+  never: 'そのまま表示する',
+};
+
+export const EXCLUDE_POLICY_LABELS = {
+  reject: '自動で非承認',
+  approve: '承認待ちに回す',
+};
+
+/**
+ * 除外キーワードを差し替える。
+ * ネガティブワードそのものは会場モニターへ配らないため、ウォール一覧
+ * (store.walls) から読み、更新もこの API だけで行う。
+ */
+export async function saveExcludeTerms(terms, successMessage) {
+  return postExclude({ terms: terms.map((t) => ({ value: t.value })) }, successMessage);
+}
+
+export function addExcludeTerm(wall, raw) {
+  const value = (raw || '').trim();
+  if (!value) {
+    showToast('除外する語を入力してください');
+    return false;
+  }
+  if (value.length < 2) {
+    showToast('除外キーワードは 2 文字以上で指定してください');
+    return false;
+  }
+  const current = (wall && wall.excludeTerms) || [];
+  if (current.some((t) => t.value.toLowerCase() === value.toLowerCase())) {
+    showToast('すでに登録されています');
+    return false;
+  }
+  saveExcludeTerms(current.concat([{ value }]), '除外キーワードに追加しました');
+  return true;
+}
+
+export function requestRemoveExcludeTerm(wall, term) {
+  openConfirm('除外キーワード「' + term.value + '」を外します。よろしいですか？', () => {
+    const current = (wall && wall.excludeTerms) || [];
+    saveExcludeTerms(
+      current.filter((t) => t.value !== term.value),
+      '除外キーワードから外しました'
+    );
+  });
+}
+
+export function setExcludePolicy(policy) {
+  return postExclude({ policy }, '除外キーワードの扱いを変更しました');
+}
+
+async function postExclude(body, successMessage) {
+  try {
+    await callAdminApi(tenantPath('/api/admin/exclude'), {
+      ...body,
+      wall: store.currentWallId || undefined,
+    });
+    showToast(successMessage);
+    await fetchState();
+    return true;
+  } catch {
+    showToast('除外キーワードを更新できませんでした');
+    return false;
+  }
+}
+
+export const SCREEN_MODE_LABELS = {
+  wall: '通常 (投稿を流す)',
+  waiting: '待機',
+  break: '休憩',
+  ended: '終演',
+};
+
+export const IMAGE_POSITION_LABELS = {
+  'bottom-right': '右下',
+  'bottom-center': '中央下',
+  'bottom-left': '左下',
+  center: '見出しの下 (中央)',
+};
+
+export const IMAGE_SIZE_LABELS = {
+  small: '小 (画面高の 12%)',
+  medium: '中 (18%)',
+  large: '大 (26%)',
+};
+
+/** 会場モニターの画面モード・文言を更新する。 */
+export async function setScreen(patch, successMessage) {
+  try {
+    await callAdminApi(tenantPath('/api/admin/screen'), {
+      screen: patch,
+      wall: store.currentWallId || undefined,
+    });
+    if (successMessage) showToast(successMessage);
+    await fetchState();
+    return true;
+  } catch {
+    showToast('画面モードを変更できませんでした');
+    return false;
+  }
+}
+
+/** 任意画像 (QR など) をアップロードする。読み込みはブラウザ側で行う。 */
+export async function uploadScreenImage(file) {
+  if (!file) return false;
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('画像は 2 MB までです');
+    return false;
+  }
+  const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!allowed.includes(file.type)) {
+    showToast('画像は PNG / JPEG / WebP で指定してください');
+    return false;
+  }
+  try {
+    const data = await readFileAsBase64(file);
+    await callAdminApi(tenantPath('/api/admin/screen/image'), {
+      wall: store.currentWallId || undefined,
+      mime: file.type,
+      data,
+    });
+    showToast('画像を設定しました');
+    await fetchState();
+    return true;
+  } catch {
+    showToast('画像を設定できませんでした');
+    return false;
+  }
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export function requestRemoveScreenImage() {
+  openConfirm('設定した画像を削除します。よろしいですか？', async () => {
+    try {
+      const query = store.currentWallId ? '?wall=' + encodeURIComponent(store.currentWallId) : '';
+      const res = await apiFetch(tenantPath('/api/admin/screen/image') + query, { method: 'DELETE' });
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      if (!res.ok) throw new Error('request failed');
+      showToast('画像を削除しました');
+      await fetchState();
+    } catch {
+      showToast('画像を削除できませんでした');
+    }
+  });
+}
+
+// ==========================================================
+// システム管理: 利用者アカウント
+// ==========================================================
+
+export async function loadSystemAccounts() {
+  try {
+    const res = await apiFetch('/api/admin/system/accounts');
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    patchArrayField('systemAccounts', data.accounts, (a) => (a ? a.did : null));
+    store.systemAdminEditable = !!data.systemAdminEditable;
+  } catch {
+    showToast('アカウントを取得できませんでした');
+  }
+}
+
+export async function setAccountMembership(account, tenantId, role) {
+  try {
+    await callAdminApi('/api/admin/system/accounts/membership', {
+      tenantId,
+      did: account.did,
+      handle: account.handle,
+      role,
+    });
+    showToast('所属を変更しました');
+    await loadSystemAccounts();
+    return true;
+  } catch {
+    showToast('所属を変更できませんでした');
+    return false;
+  }
+}
+
+export function requestRemoveMembership(account, membership) {
+  openConfirm(
+    'テナント「' + membership.tenantName + '」から「' + account.handle + '」を外します。よろしいですか？',
+    async () => {
+      try {
+        const path =
+          '/api/admin/system/accounts/membership/' +
+          encodeURIComponent(membership.tenantId) +
+          '/' +
+          encodeURIComponent(account.did);
+        const res = await apiFetch(path, { method: 'DELETE' });
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          showToast((body && body.message) || '所属を解除できませんでした');
+          return;
+        }
+        showToast('所属を解除しました');
+        await loadSystemAccounts();
+      } catch {
+        showToast('所属を解除できませんでした');
+      }
+    }
+  );
+}
+
+export function requestRevokeAccountSessions(account) {
+  openConfirm('「' + account.handle + '」のログインをすべて失効させます。よろしいですか？', async () => {
+    try {
+      await callAdminApi('/api/admin/system/accounts/' + encodeURIComponent(account.did) + '/revoke');
+      showToast('セッションを失効しました');
+      await loadSystemAccounts();
+    } catch {
+      showToast('セッションを失効できませんでした');
+    }
+  });
+}
+
+/** テナント共通の設定 (会場モニターの見た目) を更新する。 */
+export async function updateTenantSettings(patch) {
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/settings'), {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || '設定を変更できませんでした');
+      return false;
+    }
+    showToast('設定を変更しました');
+    await fetchState();
+    return true;
+  } catch {
+    showToast('設定を変更できませんでした');
+    return false;
+  }
+}
+
+/** ウォールの表示設定 (会場モニター側の見た目) を更新する。 */
+export async function updateWallDisplay(wallId, patch) {
+  return updateWallSettings(wallId, { display: patch }, '表示設定を変更しました');
+}
+
+/** ウォール単位の承認設定を更新する。patch は moderationMode / keywordRequireApproval。 */
+export async function updateWallModeration(wallId, patch) {
+  return updateWallSettings(wallId, patch, '承認設定を変更しました');
+}
+
+/** ウォール設定 (PATCH /api/admin/walls/:id) の共通処理。 */
+async function updateWallSettings(wallId, patch, successMessage) {
+  try {
+    const res = await apiFetch(tenantPath('/api/admin/walls/' + encodeURIComponent(wallId)), {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      showToast((body && body.message) || '設定を変更できませんでした');
+      return false;
+    }
+    showToast(successMessage);
+    await fetchState();
+    return true;
+  } catch {
+    showToast('設定を変更できませんでした');
+    return false;
+  }
 }
 
 // ==========================================================
@@ -819,7 +1286,7 @@ export async function togglePause(nextPaused) {
   pauseRequestInFlight = true;
   try {
     await callAdminApi(tenantPath('/api/admin/pause'), { paused: nextPaused });
-    store.state = { ...store.state, paused: nextPaused };
+    store.state.paused = nextPaused;
   } catch {
     showToast('一時停止の切り替えに失敗しました');
   } finally {
@@ -918,11 +1385,11 @@ export async function loadMembers() {
       return;
     }
     if (!res.ok) {
-      store.members = [];
+      patchArrayField('members', []);
       return;
     }
     const data = await res.json();
-    store.members = data.members || [];
+    patchArrayField('members', data.members, (m) => (m ? m.did : null));
   } catch {
     showToast('メンバー一覧を取得できませんでした');
   }
@@ -1036,7 +1503,7 @@ export async function loadSystemOverview() {
       return;
     }
     if (!res.ok) return;
-    store.systemOverview = await res.json();
+    patchObjectField('systemOverview', await res.json());
   } catch {
     // 無視。次のポーリングで再取得を試みる。
   }
@@ -1051,7 +1518,7 @@ export async function loadSystemTenants() {
     }
     if (!res.ok) return;
     const data = await res.json();
-    store.systemTenants = data.tenants || [];
+    patchArrayField('systemTenants', data.tenants, (t) => (t ? t.id : null));
   } catch {
     // 無視。次のポーリングで再取得を試みる。
   }

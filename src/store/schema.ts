@@ -49,6 +49,22 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (tenant_id, uri)
   );
   `,
+  // version 2: ウォール単位の承認設定。既存行は 'inherit' (テナント設定に従う) で始まる。
+  `
+  ALTER TABLE walls ADD COLUMN moderation_mode TEXT NOT NULL DEFAULT 'inherit';
+  ALTER TABLE walls ADD COLUMN keyword_require_approval TEXT NOT NULL DEFAULT 'inherit';
+  `,
+  // version 3: ウォール単位の除外キーワード。既存行は「除外なし・自動で非承認」で始まる。
+  `
+  ALTER TABLE walls ADD COLUMN exclude_terms TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE walls ADD COLUMN exclude_policy TEXT NOT NULL DEFAULT 'reject';
+  `,
+  // version 4: 会場モニターの画面モード。既存行は既定値 (通常モード) で始まる。
+  // 任意画像の実体はファイルに置き、ここにはメタ (ファイル名・MIME・更新時刻) だけ持つ。
+  `
+  ALTER TABLE walls ADD COLUMN screen TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE walls ADD COLUMN screen_image TEXT;
+  `,
 ];
 
 /** DB を最新スキーマまでマイグレーションする。 */

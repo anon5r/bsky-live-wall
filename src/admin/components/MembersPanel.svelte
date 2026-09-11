@@ -39,6 +39,20 @@
     if (!next || next === member.role) return;
     updateMemberRole(member.did, next);
   }
+
+  function roleLabel(role) {
+    return role === 'owner' ? 'オーナー' : 'モデレーター';
+  }
+
+  // 役割が一目で分かるようにアイコンを変える (アバター画像は持っていないため)。
+  function roleIcon(role) {
+    return role === 'owner' ? 'fa-solid fa-user-shield' : 'fa-solid fa-user';
+  }
+
+  /** ハンドルの先頭 1 文字。アバター代わりの頭文字表示に使う。 */
+  function initialOf(handle) {
+    return (handle || '?').replace(/^@/, '').charAt(0).toUpperCase();
+  }
 </script>
 
 <section class="panel panel-full">
@@ -49,22 +63,43 @@
   </h2>
 
   {#if (store.members || []).length > 0}
-    <ul class="actor-list">
+    <ul class="member-list">
       {#each store.members as m (m.did)}
-        <li class="actor-item actor-item-wrap">
-          <div>
-            <div class="actor-name">{m.handle}</div>
-            <div class="field-note list-meta">
-              <span>{m.did}</span>
-              <span>追加: {formatAddedAt(m.addedAt)}</span>
+        <li class="member-item">
+          <span
+            class={'member-avatar member-avatar-' + m.role}
+            title={roleLabel(m.role)}
+            aria-label={roleLabel(m.role)}
+          >
+            <span class="member-avatar-initial" aria-hidden="true">{initialOf(m.handle)}</span>
+            <i class={roleIcon(m.role) + ' member-avatar-badge'} aria-hidden="true"></i>
+          </span>
+
+          <div class="member-main">
+            <div class="member-handle">{m.handle}</div>
+            <div class="member-meta">
+              <span class="member-did" title={m.did}>{m.did}</span>
+              <span class="member-added">追加: {formatAddedAt(m.addedAt)}</span>
             </div>
           </div>
-          <div class="field-row member-row-actions">
-            <wa-select value={m.role} onchange={(evt) => onRoleChange(m, evt)}>
+
+          <div class="member-actions">
+            <wa-select
+              class="member-role-select"
+              size="s"
+              value={m.role}
+              aria-label={m.handle + ' の役割'}
+              onchange={(evt) => onRoleChange(m, evt)}
+            >
               <wa-option value="owner">オーナー</wa-option>
               <wa-option value="moderator">モデレーター</wa-option>
             </wa-select>
-            <button type="button" class="btn btn-danger btn-small" onclick={() => requestRemoveMember(m)}>
+            <button
+              type="button"
+              class="btn btn-danger btn-small"
+              aria-label={m.handle + ' を削除'}
+              onclick={() => requestRemoveMember(m)}
+            >
               <i class="fa-solid fa-user-minus fa-fw" aria-hidden="true"></i> 削除
             </button>
           </div>
@@ -77,14 +112,27 @@
 
   <div class="field">
     <label for="member-actor-input"><i class="fa-solid fa-user-plus fa-fw" aria-hidden="true"></i> メンバーを追加</label>
-    <div class="field-row">
-      <wa-input id="member-actor-input" bind:this={actorInputEl} autocomplete="off" placeholder="ハンドルまたは DID" use:enterKey={onAdd}></wa-input>
-      <wa-select id="member-role-select" bind:this={roleSelectEl} value="moderator">
+    <div class="field-row member-add-row">
+      <wa-input
+        id="member-actor-input"
+        bind:this={actorInputEl}
+        autocomplete="off"
+        placeholder="ハンドルまたは DID"
+        aria-label="追加するメンバーのハンドルまたは DID"
+        use:enterKey={onAdd}
+      ></wa-input>
+      <wa-select
+        id="member-role-select"
+        class="member-role-select"
+        bind:this={roleSelectEl}
+        value="moderator"
+        aria-label="追加するメンバーの役割"
+      >
         <wa-option value="moderator">モデレーター</wa-option>
         <wa-option value="owner">オーナー</wa-option>
       </wa-select>
       <wa-button variant="brand" disabled={adding} onclick={onAdd}>
-        <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> 追加
+        <i class="fa-solid fa-user-plus fa-fw" aria-hidden="true"></i> 追加
       </wa-button>
     </div>
     <p class="field-note">

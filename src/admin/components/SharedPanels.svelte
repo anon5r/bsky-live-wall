@@ -14,6 +14,8 @@
     unsubscribeModlist,
     unblockActor,
     revokeAllSessions,
+    updateTenantSettings,
+    showToast,
     sessionExpiryLabel,
     wallNameOf,
   } from '../lib/store.svelte.js';
@@ -42,6 +44,19 @@
 
   function onPauseChange() {
     togglePause(!(pauseSwitchEl && pauseSwitchEl.checked));
+  }
+
+  // 会場モニターのタイトルに出す Bluesky ロゴ。テナント共通の設定。
+  const canEditSettings = $derived(store.myRole === 'owner' || store.myRole === 'system');
+  const showBlueskyLogo = $derived(store.state.showBlueskyLogo !== false);
+
+  let logoSwitchEl = $state(null);
+  $effect(() => {
+    if (logoSwitchEl) logoSwitchEl.checked = showBlueskyLogo;
+  });
+
+  function onLogoToggle() {
+    updateTenantSettings({ showBlueskyLogo: !!(logoSwitchEl && logoSwitchEl.checked) });
   }
 
   let jetstreamSelectEl = $state(null);
@@ -114,10 +129,137 @@
     const ok = await subscribeModlist(uri);
     if (ok) availableLists = null;
   }
+
+  let { section = 'status' } = $props();
+
+  // ---- イベント情報 ----
+  let titleInputEl = $state(null);
+  let subtitleInputEl = $state(null);
+  let titleDraft = $state('');
+  let subtitleDraft = $state('');
+  let eventLoaded = false;
+
+  // ポーリングで入力中の値が戻らないよう、初回だけサーバー値を写す。
+  $effect(() => {
+    const t = store.settings.title;
+    const sub = store.settings.subtitle;
+    if (!eventLoaded && (t || sub)) {
+      eventLoaded = true;
+      titleDraft = t || '';
+      subtitleDraft = sub || '';
+      if (titleInputEl) titleInputEl.value = titleDraft;
+      if (subtitleInputEl) subtitleInputEl.value = subtitleDraft;
+    }
+  });
+
+  function onEventInput() {
+    titleDraft = (titleInputEl && titleInputEl.value) || '';
+    subtitleDraft = (subtitleInputEl && subtitleInputEl.value) || '';
+  }
+
+  function saveEventInfo() {
+    updateTenantSettings({ title: titleDraft.trim(), subtitle: subtitleDraft.trim() });
+  }
+
+  // ---- 取り込みの候補 ----
+  let presetInputEl = $state(null);
+  const presets = $derived(store.settings.backfillPresets || []);
+
+  function presetLabel(minutes) {
+    if (minutes % 1440 === 0) return minutes / 1440 + ' 日';
+    if (minutes % 60 === 0) return minutes / 60 + ' 時間';
+    return minutes + ' 分';
+  }
+
+  function addPreset() {
+    const raw = ((presetInputEl && presetInputEl.value) || '').trim();
+    const minutes = parseInt(raw, 10);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 2160) {
+      showToast('1 〜 2160 分で指定してください');
+      return false;
+    }
+    if (presets.includes(minutes)) {
+      showToast('すでに登録されています');
+      return false;
+    }
+    updateTenantSettings({ backfillPresets: presets.concat([minutes]) });
+    if (presetInputEl) presetInputEl.value = '';
+    return true;
+  }
+
+  function removePreset(minutes) {
+    updateTenantSettings({ backfillPresets: presets.filter((m) => m !== minutes) });
+  }
+
+  // ---- NG ワード / 正規表現 ----
+  let ngInputEl = $state(null);
+  const ngWords = $derived(store.settings.ngWords || []);
+  const ngPatterns = $derived(store.settings.ngPatterns || []);
+
+  function ngValue() {
+    return ((ngInputEl && ngInputEl.value) || '').trim();
+  }
+
+  function addNgWord() {
+    const value = ngValue();
+    if (!value) return false;
+    if (ngWords.includes(value.toLowerCase())) {
+      showToast('すでに登録されています');
+      return false;
+    }
+    updateTenantSettings({ ngWords: ngWords.concat([value]) });
+    if (ngInputEl) ngInputEl.value = '';
+    return true;
+  }
+
+  function addNgPattern() {
+    const value = ngValue();
+    if (!value) return false;
+    if (ngPatterns.includes(value)) {
+      showToast('すでに登録されています');
+      return false;
+    }
+    updateTenantSettings({ ngPatterns: ngPatterns.concat([value]) });
+    if (ngInputEl) ngInputEl.value = '';
+    return true;
+  }
+
+  function removeNgWord(word) {
+    updateTenantSettings({ ngWords: ngWords.filter((w) => w !== word) });
+  }
+
+  function removeNgPattern(pattern) {
+    updateTenantSettings({ ngPatterns: ngPatterns.filter((p) => p !== pattern) });
+  }
+
+  // ---- リプライ / ラベル ----
+  let repliesSwitchEl = $state(null);
+  let labeledSwitchEl = $state(null);
+  $effect(() => {
+    if (repliesSwitchEl) repliesSwitchEl.checked = store.settings.allowReplies !== false;
+  });
+  $effect(() => {
+    if (labeledSwitchEl) labeledSwitchEl.checked = store.settings.filterLabeled !== false;
+  });
+
+  function onRepliesToggle() {
+    updateTenantSettings({ allowReplies: !!(repliesSwitchEl && repliesSwitchEl.checked) });
+  }
+
+  function onLabeledToggle() {
+    updateTenantSettings({ filterLabeled: !!(labeledSwitchEl && labeledSwitchEl.checked) });
+  }
 </script>
 
-<!-- 状態 -->
-<section class="panel panel-full">
+{#if section === 'status'}
+<header class="wall-section-head">
+  <h2>状態
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>いまの受信状況と、選択中のウォールの集計。</p>
+</header>
+<!-- 状態 (ウォールの作業領域のナビからここへ戻れるよう id を振る) -->
+<section id="shared-panels" class="panel panel-full">
   <h2 class="panel-title">
     <i class="fa-solid fa-gauge-high fa-fw" aria-hidden="true"></i> 状態
     <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
@@ -167,6 +309,84 @@
   </div>
 </section>
 
+
+{:else if section === 'event'}
+<header class="wall-section-head">
+  <h2>イベント情報
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>会場モニターのヘッダと待機画面に出る文言。</p>
+</header>
+
+<div class="monitor-preview">
+  <div class="monitor-preview-bar">
+    <div class="monitor-preview-title">
+      {#if store.settings.showBlueskyLogo !== false}
+        <svg class="monitor-preview-logo" viewBox="0 0 576 512" aria-hidden="true">
+          <path fill="#0085ff" d="M407.8 294.7c-3.3-.4-6.7-.8-10-1.3 3.4 .4 6.7 .9 10 1.3zM288 227.1C261.9 176.4 190.9 81.9 124.9 35.3 61.6-9.4 37.5-1.7 21.6 5.5 3.3 13.8 0 41.9 0 58.4S9.1 194 15 213.9c19.5 65.7 89.1 87.9 153.2 80.7 3.3-.5 6.6-.9 10-1.4-3.3 .5-6.6 1-10 1.4-93.9 14-177.3 48.2-67.9 169.9 120.3 124.6 164.8-26.7 187.7-103.4 22.9 76.7 49.2 222.5 185.6 103.4 102.4-103.4 28.1-156-65.8-169.9-3.3-.4-6.7-.8-10-1.3 3.4 .4 6.7 .9 10 1.3 64.1 7.1 133.6-15.1 153.2-80.7 5.9-19.9 15-138.9 15-155.5s-3.3-44.7-21.6-52.9c-15.8-7.1-40-14.9-103.2 29.8-66.1 46.6-137.1 141.1-163.2 191.8z"></path>
+        </svg>
+      {/if}
+      <span>{titleDraft || 'Live Wall'}</span>
+    </div>
+    <div class="monitor-preview-sub">{subtitleDraft}</div>
+    <div class="monitor-preview-placeholder">
+      <span>監視語</span>
+      <span>時計</span>
+    </div>
+  </div>
+  <p class="monitor-preview-caption">会場モニターのヘッダ (プレビュー)。監視語と時計はウォールごとの設定です。</p>
+</div>
+
+<section class="panel">
+  <div class="control-row">
+    <span class="control-label">
+      イベント名
+      <span class="control-note">モニターのタイトル。</span>
+    </span>
+    <wa-input
+      bind:this={titleInputEl}
+      size="s"
+      class="settings-input"
+      aria-label="イベント名"
+      disabled={!canEditSettings}
+      oninput={onEventInput}
+      onchange={saveEventInfo}
+    ></wa-input>
+  </div>
+  <div class="control-row">
+    <span class="control-label">
+      サブテキスト
+      <span class="control-note">会場名や日付など。</span>
+    </span>
+    <wa-input
+      bind:this={subtitleInputEl}
+      size="s"
+      class="settings-input"
+      aria-label="サブテキスト"
+      disabled={!canEditSettings}
+      oninput={onEventInput}
+      onchange={saveEventInfo}
+    ></wa-input>
+  </div>
+  <div class="control-row">
+    <span class="control-label">
+      ウォールタイトルに Bluesky ロゴを表示する
+      <span class="control-note">Bluesky のロゴを表示します。設定をオフにすると Bluesky のロゴのみ非表示になります。</span>
+    </span>
+    <wa-switch bind:this={logoSwitchEl} disabled={!canEditSettings} onchange={onLogoToggle}></wa-switch>
+  </div>
+</section>
+{#if !canEditSettings}
+  <p class="field-note">この設定を変更できるのはオーナーだけです。</p>
+{/if}
+
+{:else if section === 'delivery'}
+<header class="wall-section-head">
+  <h2>モニターへの配信
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>会場モニターへ出すかどうか。受信そのものは止まりません。</p>
+</header>
 <!-- 配信 ON/OFF -->
 <section class="panel">
   <h2 class="panel-title">
@@ -183,8 +403,64 @@
       <span class="toggle-text">{store.state.paused ? '停止中' : '有効'}</span>
     </div>
   </div>
+  <div class="control-row">
+    <span class="control-label">
+      タイトルの Bluesky ロゴ
+      <span class="control-note">
+        会場モニターのタイトルに含まれる「Bluesky」を、ブランドカラーのロゴアイコンで表示します。
+        {#if !canEditSettings}この設定を変更できるのはオーナーだけです。{/if}
+      </span>
+    </span>
+    <div class="switch-row">
+      <wa-switch bind:this={logoSwitchEl} disabled={!canEditSettings} onchange={onLogoToggle}></wa-switch>
+      <span class="toggle-text">{showBlueskyLogo ? 'ロゴで表示' : '文字のまま'}</span>
+    </div>
+  </div>
 </section>
 
+
+{:else if section === 'ingest'}
+<header class="wall-section-head">
+  <h2>受信と取り込み
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>Jetstream からの受信と、過去分をどこまで遡るか。</p>
+</header>
+
+<section class="panel">
+  <div class="field">
+    <label for="backfill-preset-input"><i class="fa-solid fa-list-ol fa-fw" aria-hidden="true"></i> 遡る時間の候補</label>
+    <div class="field-row">
+      <wa-input
+        id="backfill-preset-input"
+        bind:this={presetInputEl}
+        size="s"
+        type="number"
+        min="1"
+        max="2160"
+        placeholder="分で指定 (例: 360)"
+        disabled={!canEditSettings}
+        use:enterKey={addPreset}
+      ></wa-input>
+      <wa-button size="s" variant="brand" disabled={!canEditSettings} onclick={addPreset}>
+        <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> 候補を追加
+      </wa-button>
+    </div>
+    <ul class="term-list">
+      {#each presets as minutes (minutes)}
+        <li class="term-item">
+          <wa-tag with-remove variant="neutral" aria-label={presetLabel(minutes) + ' を候補から外す'} onwa-remove={() => removePreset(minutes)}>
+            {presetLabel(minutes)}
+          </wa-tag>
+        </li>
+      {/each}
+    </ul>
+    {#if presets.length === 0}
+      <p class="empty-msg">候補がありません。</p>
+    {/if}
+    <p class="field-note">ここで足した候補が、取り込みのメニューに出ます。</p>
+  </div>
+</section>
 <!-- 受信設定 -->
 <section class="panel">
   <h2 class="panel-title">
@@ -245,6 +521,81 @@
   </div>
 </section>
 
+
+{:else if section === 'moderation'}
+<header class="wall-section-head">
+  <h2>モデレーション
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>全ウォールに効く除外。ウォールごとの承認設定とは別です。</p>
+</header>
+
+<section class="panel">
+  <h2 class="panel-title">
+    <i class="fa-solid fa-ban fa-fw" aria-hidden="true"></i> NG ワード / 正規表現
+    <span class="panel-count">{ngWords.length + ngPatterns.length}</span>
+  </h2>
+  <div class="field-row">
+    <wa-input
+      bind:this={ngInputEl}
+      size="s"
+      autocomplete="off"
+      placeholder="語、または正規表現"
+      aria-label="NG ワードまたは正規表現"
+      disabled={!canEditSettings}
+      use:enterKey={addNgWord}
+    ></wa-input>
+    <wa-button size="s" variant="danger" disabled={!canEditSettings} onclick={addNgWord}>
+      <i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> 語を追加
+    </wa-button>
+    <wa-button size="s" variant="warning" appearance="outlined" disabled={!canEditSettings} onclick={addNgPattern}>
+      <i class="fa-solid fa-asterisk fa-fw" aria-hidden="true"></i> 正規表現
+    </wa-button>
+  </div>
+  <ul class="term-rows">
+    {#each ngWords as word (word)}
+      <li class="term-row">
+        <span class="term-row-icon term-row-icon-keyword" aria-hidden="true"><i class="fa-solid fa-font"></i></span>
+        <span class="term-row-value">{word}</span>
+        <span class="term-row-type">語</span>
+        <button type="button" class="term-row-remove" aria-label={word + ' を削除'} disabled={!canEditSettings} onclick={() => removeNgWord(word)}>
+          <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+        </button>
+      </li>
+    {/each}
+    {#each ngPatterns as pattern (pattern)}
+      <li class="term-row">
+        <span class="term-row-icon term-row-icon-hashtag" aria-hidden="true"><i class="fa-solid fa-asterisk"></i></span>
+        <span class="term-row-value">{pattern}</span>
+        <span class="term-row-type">正規表現</span>
+        <button type="button" class="term-row-remove" aria-label={pattern + ' を削除'} disabled={!canEditSettings} onclick={() => removeNgPattern(pattern)}>
+          <i class="fa-solid fa-xmark fa-fw" aria-hidden="true"></i>
+        </button>
+      </li>
+    {/each}
+  </ul>
+  {#if ngWords.length + ngPatterns.length === 0}
+    <p class="empty-msg">NG ワードはありません。</p>
+  {/if}
+  <p class="field-note">一致した投稿は受信した時点で捨てます。ウォールごとの除外キーワードとは別です。</p>
+</section>
+
+<section class="panel">
+  <div class="control-row">
+    <span class="control-label">
+      リプライを表示する
+      <span class="control-note">オフにすると返信は拾いません。</span>
+    </span>
+    <wa-switch bind:this={repliesSwitchEl} disabled={!canEditSettings} onchange={onRepliesToggle}></wa-switch>
+  </div>
+  <div class="control-row">
+    <span class="control-label">
+      成人向けラベルを除外する
+      <span class="control-note">自己申告ラベルの付いた投稿を拾いません。</span>
+    </span>
+    <wa-switch bind:this={labeledSwitchEl} disabled={!canEditSettings} onchange={onLabeledToggle}></wa-switch>
+  </div>
+</section>
 <!-- モデレーションリスト -->
 <section class="panel panel-modlist">
   <h2 class="panel-title">
@@ -328,16 +679,6 @@
   {/if}
 </section>
 
-<!-- 非表示にした投稿 -->
-<section class="panel panel-hidden">
-  <h2 class="panel-title">
-    <i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示にした投稿
-    <span class="panel-count">{(store.hidden || []).length}</span>
-    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
-  </h2>
-  <PostList posts={store.hidden || []} emptyMessage="非表示にした投稿はありません。" showUnhide={true} />
-</section>
-
 <!-- ブロック中の投稿者 -->
 <section class="panel panel-blocked">
   <h2 class="panel-title">
@@ -365,6 +706,24 @@
   <MembersPanel />
 {/if}
 
+<!-- 非表示にした投稿 -->
+<section class="panel panel-hidden">
+  <h2 class="panel-title">
+    <i class="fa-solid fa-eye-slash fa-fw" aria-hidden="true"></i> 非表示にした投稿
+    <span class="panel-count">{(store.hidden || []).length}</span>
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> 全ウォール共通</span>
+  </h2>
+  <PostList posts={store.hidden || []} emptyMessage="非表示にした投稿はありません。" showUnhide={true} />
+</section>
+
+
+{:else if section === 'access'}
+<header class="wall-section-head">
+  <h2>メンバーとセッション
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <p>このテナントを操作できるアカウントと、ログイン中のセッション。</p>
+</header>
 <!-- セッション -->
 <section class="panel">
   <h2 class="panel-title">
@@ -384,3 +743,5 @@
     />
   </div>
 </section>
+
+{/if}

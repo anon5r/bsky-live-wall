@@ -5,7 +5,16 @@
  * 置いたままで足りる。共有サービスとして動かす場合はテナントが再起動を跨いで
  * 残る必要があるため、ここで定義した形で永続化する。
  */
-import type { DisplayConfig, ModerationMode, WatchTerm } from './types.js';
+import type {
+  ApprovalSetting,
+  DisplayConfig,
+  ExcludePolicy,
+  ExcludeTerm,
+  ModerationMode,
+  WallModerationMode,
+  WallScreen,
+  WatchTerm,
+} from './types.js';
 
 /** 運用モード。`.env` の `MULTI_TENANT` で切り替える。 */
 export type TenancyMode = 'single' | 'multi';
@@ -39,6 +48,16 @@ export interface TenantSettings {
   filterLabeled: boolean;
   allowedLangs: string[];
   startupBackfillMinutes: number;
+  /**
+   * 取り込みで遡れる時間の候補 (分)。管理画面のメニューに出る。
+   * システム既定 (`.env` の BACKFILL_PRESETS) を初期値に、テナントが足せる。
+   */
+  backfillPresets: number[];
+  /**
+   * 会場モニターのタイトルに含まれる「Bluesky」をロゴアイコンで表示するか。
+   * イベントによってはロゴを出したくない (主催者ロゴと並べたくない等) ため切り替えられる。
+   */
+  showBlueskyLogo: boolean;
 }
 
 /** テナントを操作できるアカウント。招待制の実体。 */
@@ -62,6 +81,27 @@ export interface PersistedWall {
   isDefault: boolean;
   /** 管理画面での並び順。 */
   position: number;
+  /** このウォールの承認モード。'inherit' はテナント設定に従う。 */
+  moderationMode: WallModerationMode;
+  /** キーワードのみ一致の扱い。'inherit' はテナント設定に従う。 */
+  keywordRequireApproval: ApprovalSetting;
+  /** 除外キーワード。本文に含まれていたらこのウォールでは拾わない。 */
+  excludeTerms: ExcludeTerm[];
+  /** 除外キーワードに一致した投稿の扱い。 */
+  excludePolicy: ExcludePolicy;
+  /** 画面モードと文言。 */
+  screen: WallScreen;
+  /** 任意画像。data ディレクトリ配下のファイル名で持つ。 */
+  screenImage: PersistedScreenImage | null;
+}
+
+/** 会場モニターに出す任意画像 (QR コードなど)。実体はファイル、DB にはメタだけ置く。 */
+export interface PersistedScreenImage {
+  /** アップロード先ディレクトリからの相対ファイル名 */
+  file: string;
+  mime: string;
+  /** キャッシュを外すための更新時刻 (epoch ms) */
+  updatedAt: number;
 }
 
 /** 購読中のモデレーションリスト。 */

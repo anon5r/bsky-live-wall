@@ -18,13 +18,25 @@
  */
 import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
-import { buildTerms, compilePatterns, type AppConfig } from '../shared/config.js';
+import {
+  buildExcludeTerms,
+  buildTerms,
+  compilePatterns,
+  defaultWallScreen,
+  type AppConfig,
+} from '../shared/config.js';
 import type {
+  ApprovalSetting,
   BackfillStatus,
   DisplayConfig,
+  ExcludePolicy,
+  ExcludeTerm,
+  ModerationMode,
   JetstreamEvent,
   ModListInfo,
   WallPost,
+  WallModerationMode,
+  WallScreen,
   WallState,
   WallSummary,
   WatchTerm,
@@ -32,14 +44,21 @@ import type {
 } from '../shared/types.js';
 import type { WallHandle, WallSource, WallSourceEvents } from '../shared/contracts.js';
 import type { IngestHub, TenantRuntime } from '../shared/ingest-contracts.js';
-import type { PersistedWall, Tenant, TenantMember, TenantSettings, TenantStore } from '../shared/tenancy.js';
+import type {
+  PersistedScreenImage,
+  PersistedWall,
+  Tenant,
+  TenantMember,
+  TenantSettings,
+  TenantStore,
+} from '../shared/tenancy.js';
 import { createLogger } from '../shared/logger.js';
 import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { matchKeywords } from './keyword-matcher.js';
 import { evaluate, type ModerationRules } from './moderator.js';
 import { mapToWallPost } from './post-mapper.js';
-import { Wall, displayFromConfig, normalizeWallId } from './wall.js';
+import { Wall, displayFromConfig, needsApproval, normalizeWallId } from './wall.js';
 
 const log = createLogger('wall-manager');
 
@@ -49,6 +68,8 @@ const POST_COLLECTION = 'app.bsky.feed.post';
 const HIDDEN_URI_LIMIT = 5000;
 /** 1 ウォールあたりの監視語の上限。 */
 const MAX_TERMS = 20;
+/** 1 ウォールあたりの除外キーワードの上限。 */
+const MAX_EXCLUDE_TERMS = 50;
 /** ウォール数の上限。 */
 const MAX_WALLS = 10;
 /** バックフィル中にライブ側で観測した削除を覚えておく上限。 */
@@ -128,7 +149,12 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         this.store ? [] : config.event.terms,
         displayFromConfig(config),
         true,
-        config.buffer.size
+        config.buffer.size,
+        'inherit',
+        'inherit',
+        // single モードでは `.env` の EXCLUDE_WORDS を初期値にする。
+        this.store ? [] : config.event.excludeTerms,
+        'reject'
       );
       this.walls.set(defaultWall.id, defaultWall);
       this.persistWall(defaultWall);
@@ -153,13 +179,33 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       let updated = false;
       for (const wall of this.walls.values()) {
         if (wall.store.updateAuthor(did, author).length > 0) updated = true;
+        // 取り込み待ちの投稿にも反映する。バッファに居る間に解決したプロフィールを
+        // 取りこぼすと、確定後に表示名もアイコンも出ないまま残ってしまう。
+        for (const post of wall.backfillBuffer.values()) {
+          if (post.did === did) post.author = { ...post.author, ...author };
+        }
       }
       if (updated) this.emit('profile', { did, author });
     });
   }
 
   private wallFromPersisted(p: PersistedWall): Wall {
-    return new Wall(p.id, p.name, p.terms, p.display, p.isDefault, this.config.buffer.size);
+    return new Wall(
+      p.id,
+      p.name,
+      // 過去に保存された監視語には requireApproval が無いため補う。
+      buildTerms(p.terms),
+      // 表示設定も後から項目が増えるため、既定で埋めてから保存値を重ねる。
+      { ...displayFromConfig(this.config), ...p.display },
+      p.isDefault,
+      this.config.buffer.size,
+      p.moderationMode ?? 'inherit',
+      p.keywordRequireApproval ?? 'inherit',
+      buildExcludeTerms(p.excludeTerms ?? []),
+      p.excludePolicy ?? 'reject',
+      { ...defaultWallScreen(), ...(p.screen ?? {}) },
+      p.screenImage ?? null
+    );
   }
 
   /** 現在のウォール一覧を永続化する (store があるときのみ)。 */
@@ -174,7 +220,98 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       display: wall.display,
       isDefault: wall.isDefault,
       position: position >= 0 ? position : this.walls.size,
+      moderationMode: wall.moderationMode,
+      keywordRequireApproval: wall.keywordRequireApproval,
+      excludeTerms: wall.excludeTerms,
+      excludePolicy: wall.excludePolicy,
+      screen: wall.screen,
+      screenImage: wall.screenImage,
     });
+  }
+
+  /** このウォールに実際に適用される承認モード。'inherit' ならテナント設定。 */
+  private effectiveModerationMode(wall: Wall): ModerationMode {
+    return wall.moderationMode === 'inherit' ? this.settings.moderationMode : wall.moderationMode;
+  }
+
+  /** キーワードのみ一致を承認待ちにするか。'inherit' ならテナント設定。 */
+  private effectiveKeywordApproval(wall: Wall): boolean {
+    if (wall.keywordRequireApproval === 'inherit') return this.settings.keywordRequireApproval;
+    return wall.keywordRequireApproval === 'always';
+  }
+
+  /**
+   * 一致した語とウォール設定から、この投稿を承認待ちにするかを決める。
+   * 除外キーワードに当たった投稿は、承認不要の設定であっても必ず承認待ちにする
+   * (扱いが 'reject' の場合はここへ来る前に破棄している)。
+   */
+  private requiresApproval(
+    wall: Wall,
+    tags: string[],
+    keywords: string[],
+    excludes: string[] = []
+  ): boolean {
+    if (excludes.length > 0) return true;
+    return needsApproval(wall.matchedTerms(tags, keywords), tags.length > 0, {
+      moderationMode: this.effectiveModerationMode(wall),
+      keywordRequireApproval: this.effectiveKeywordApproval(wall),
+    });
+  }
+
+  /**
+   * 承認待ちを現在の設定で見直し、承認が不要になった投稿を表示へ移す。
+   *
+   * 承認設定を緩めたとき (ウォールを公開に戻す / キーワードを「そのまま表示する」に
+   * する / 語ごとに 'never' を付ける) に、すでに溜まっていた投稿が承認待ちのまま
+   * 残り続けるのを防ぐ。却下された投稿は承認待ちに残らないため、ここで表示に回る
+   * のは「まだ運営が判断していない投稿」だけになる。
+   *
+   * 逆方向 (設定を厳しくした場合) に表示済みを取り下げることはしない。
+   * 会場スクリーンから投稿が消える動きは、運営の明示的な操作 (非表示) に限る。
+   */
+  private reevaluatePending(wall: Wall): number {
+    // getPending は新しい順に返す。表示の並びを崩さないよう古い順に昇格させる。
+    const pending = wall.store.getPending(Number.MAX_SAFE_INTEGER).reverse();
+    let promoted = 0;
+    for (const post of pending) {
+      if (this.requiresApproval(wall, post.matchedTags, post.matchedKeywords, post.matchedExcludes ?? [])) {
+        continue;
+      }
+      const visible = wall.store.promotePending(post.uri);
+      if (!visible) continue;
+      promoted += 1;
+      if (!this.paused) this.emit('post', wall.id, visible);
+    }
+    if (promoted > 0) {
+      log.info(`承認設定の変更により ${promoted} 件を表示へ移しました (${wall.id})`);
+      this.scheduleStateEmit(wall.id);
+    }
+    return promoted;
+  }
+
+  /**
+   * 除外キーワードを変えたあと、承認待ちに残っている投稿の印を付け直す。
+   * 語を消した場合は印が外れ、通常の承認要否の判定に戻る。
+   */
+  private reevaluateExcluded(wall: Wall): void {
+    for (const post of wall.store.getPending(Number.MAX_SAFE_INTEGER)) {
+      const excludes = wall.matchExcludes({ text: post.text, createdAt: post.createdAt });
+      if (excludes.length > 0) post.matchedExcludes = excludes;
+      else delete post.matchedExcludes;
+    }
+  }
+
+  /**
+   * 待機モードのウォールに投稿が出たら通常モードへ戻す。
+   * 開演を待つ間だけ案内を出し、始まったら勝手に投稿が流れるようにするため。
+   * 休憩・終演は運営が明示的に戻すまで保つ (勝手に再開しない)。
+   */
+  private resumeFromWaiting(wall: Wall): void {
+    if (wall.screen.mode !== 'waiting' || !wall.screen.autoResume) return;
+    wall.screen = { ...wall.screen, mode: 'wall' };
+    this.persistWall(wall);
+    log.info(`投稿が届いたため通常モードへ戻しました (${wall.id})`);
+    this.emit('walls', this.getWalls());
   }
 
   /** モデレーション判定に渡す形へ、テナント設定から組み立てる。 */
@@ -203,6 +340,10 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
     this.tenantMeta = { ...this.tenantMeta, updatedAt: Date.now() };
     if (this.store) {
       this.store.updateTenant(this.tenantId, { settings: this.settings });
+    }
+    // 承認設定を継承しているウォールは、この変更で承認が不要になることがある。
+    if (patch.moderationMode !== undefined || patch.keywordRequireApproval !== undefined) {
+      for (const wall of this.walls.values()) this.reevaluatePending(wall);
     }
     this.emitStateAll();
   }
@@ -293,8 +434,10 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
   createWall(input: {
     id?: string;
     name: string;
-    terms: { value: string; type: WatchTermType }[];
+    terms: { value: string; type: WatchTermType; requireApproval?: ApprovalSetting }[];
     display?: Partial<DisplayConfig>;
+    moderationMode?: WallModerationMode;
+    keywordRequireApproval?: ApprovalSetting;
   }): WallSummary {
     if (this.walls.size >= MAX_WALLS) {
       throw new Error(`ウォールは ${MAX_WALLS} 個までです`);
@@ -314,7 +457,9 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       terms,
       { ...displayFromConfig(this.config), ...input.display },
       false,
-      this.config.buffer.size
+      this.config.buffer.size,
+      input.moderationMode ?? 'inherit',
+      input.keywordRequireApproval ?? 'inherit'
     );
     this.walls.set(id, wall);
     this.persistWall(wall);
@@ -343,12 +488,24 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
 
   updateWall(
     id: string,
-    input: { name?: string; display?: Partial<DisplayConfig> }
+    input: {
+      name?: string;
+      display?: Partial<DisplayConfig>;
+      moderationMode?: WallModerationMode;
+      keywordRequireApproval?: ApprovalSetting;
+    }
   ): WallSummary | undefined {
     const wall = this.walls.get(id);
     if (!wall) return undefined;
     if (input.name !== undefined && input.name.trim() !== '') wall.name = input.name.trim();
     if (input.display) wall.display = { ...wall.display, ...input.display };
+    const moderationChanged =
+      input.moderationMode !== undefined || input.keywordRequireApproval !== undefined;
+    if (input.moderationMode !== undefined) wall.moderationMode = input.moderationMode;
+    if (input.keywordRequireApproval !== undefined) {
+      wall.keywordRequireApproval = input.keywordRequireApproval;
+    }
+    if (moderationChanged) this.reevaluatePending(wall);
     this.persistWall(wall);
     this.emit('walls', this.getWalls());
     this.scheduleStateEmit(id);
@@ -367,6 +524,8 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         // 監視語が無いウォールは何も拾わず、待機画面のままになる。
         const terms = buildTerms(input).slice(0, MAX_TERMS);
         wall.terms = terms;
+        // 語ごとの承認要否も変わりうるため、承認待ちを見直す。
+        this.reevaluatePending(wall);
         this.persistWall(wall);
         log.info(`監視語を変更しました (${wall.id})`, {
           terms: terms.map((t) => `${t.type}:${t.value}`),
@@ -374,6 +533,42 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         this.emit('walls', this.getWalls());
         this.scheduleStateEmit(wall.id);
         return terms;
+      },
+      getScreen: () => ({ screen: wall.screen, imageUrl: wall.screenImageUrl() }),
+      setScreen: (patch) => {
+        wall.screen = { ...wall.screen, ...patch };
+        this.persistWall(wall);
+        log.info(`画面モードを変更しました (${wall.id})`, { mode: wall.screen.mode });
+        this.emit('walls', this.getWalls());
+        this.scheduleStateEmit(wall.id);
+        return { screen: wall.screen, imageUrl: wall.screenImageUrl() };
+      },
+      setScreenImage: (image) => {
+        wall.screenImage = image;
+        // 画像を消したら表示も止める。出す設定のまま欠けた画像を探させない。
+        if (!image) wall.screen = { ...wall.screen, showImage: false };
+        this.persistWall(wall);
+        this.emit('walls', this.getWalls());
+        this.scheduleStateEmit(wall.id);
+        return { screen: wall.screen, imageUrl: wall.screenImageUrl() };
+      },
+      getExcludes: () => ({ terms: wall.excludeTerms, policy: wall.excludePolicy }),
+      setExcludes: (input) => {
+        if (input.terms !== undefined) {
+          wall.excludeTerms = buildExcludeTerms(input.terms).slice(0, MAX_EXCLUDE_TERMS);
+        }
+        if (input.policy !== undefined) wall.excludePolicy = input.policy;
+        this.persistWall(wall);
+        log.info(`除外キーワードを変更しました (${wall.id})`, {
+          count: wall.excludeTerms.length,
+          policy: wall.excludePolicy,
+        });
+        // 除外語を消した / 扱いを緩めた場合に、承認待ちのままになるのを防ぐ。
+        this.reevaluateExcluded(wall);
+        this.reevaluatePending(wall);
+        this.emit('walls', this.getWalls());
+        this.scheduleStateEmit(wall.id);
+        return { terms: wall.excludeTerms, policy: wall.excludePolicy };
       },
       approve: (uri) => {
         const post = wall.store.promotePending(uri);
@@ -411,7 +606,11 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
     let removed = false;
     for (const wall of this.walls.values()) {
       const post = wall.store.get(uri);
-      if (post) this.stashHidden(post);
+      // 除外キーワードに当たった投稿は「非表示にした投稿」に残さない。
+      // ネガティブワードを含む文面を運営が見続けずに済むようにするため。
+      if (post && !(post.matchedExcludes && post.matchedExcludes.length > 0)) {
+        this.stashHidden(post);
+      }
       if (wall.store.remove(uri, 'hidden')) {
         this.emit('remove', wall.id, { uri, reason: 'hidden' });
         this.scheduleStateEmit(wall.id);
@@ -610,13 +809,22 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
     if (source === 'backfill' && this.backfillDeleted.has(uri)) return;
 
     // どのウォールが拾うかを先に判定する。1 つも拾わないなら以降の処理は不要。
-    const hits: { wall: Wall; tags: string[]; keywords: string[] }[] = [];
+    const hits: { wall: Wall; tags: string[]; keywords: string[]; excludes: string[] }[] = [];
     for (const wall of this.walls.values()) {
       if (wall.store.has(uri) || wall.backfillBuffer.has(uri)) continue;
       const tags = matchHashtags(record, wall.normalizedHashtags);
       const keywords = matchKeywords(record, wall.terms);
       if (tags.length === 0 && keywords.length === 0) continue;
-      hits.push({ wall, tags, keywords });
+
+      // 除外キーワードに当たった投稿は、扱いが 'reject' ならここで捨てる。
+      // 承認待ちにも直近の投稿にも残さず、運営の目にも触れさせない。
+      const excludes = wall.matchExcludes(record);
+      if (excludes.length > 0 && wall.excludePolicy === 'reject') {
+        wall.store.recordMatched();
+        wall.store.recordRejected();
+        continue;
+      }
+      hits.push({ wall, tags, keywords, excludes });
     }
     if (hits.length === 0) return;
 
@@ -634,7 +842,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       return;
     }
 
-    for (const { wall, tags, keywords } of hits) {
+    for (const { wall, tags, keywords, excludes } of hits) {
       const wallPost = mapToWallPost({
         did: event.did,
         rkey: commit.rkey,
@@ -646,6 +854,9 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         showImages: wall.display.showImages,
         author,
       });
+      // 除外キーワードに当たった投稿 (扱いが 'approve' のもの) は印を付けて運ぶ。
+      // 却下したときに「非表示にした投稿」へ残さない判断に使う。
+      if (excludes.length > 0) wallPost.matchedExcludes = excludes;
 
       if (source === 'backfill') {
         // 対象外のウォールには反映しない (ウォール指定の取り込みに対応するため)。
@@ -653,20 +864,15 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         continue;
       }
 
-      // ハッシュタグが付いていない投稿は、投稿者がイベントを意識していない
-      // 可能性がある。会場スクリーンに無関係な投稿を出さないため確認を挟む。
-      const keywordOnly = tags.length === 0 && keywords.length > 0;
-      const needsApproval =
-        this.settings.moderationMode === 'approve' ||
-        (keywordOnly && this.settings.keywordRequireApproval);
-
-      if (needsApproval) {
+      // 承認要否はウォールごと・監視語ごとの設定を踏まえて決める (wall.ts の needsApproval)。
+      if (this.requiresApproval(wall, tags, keywords, excludes)) {
         const pendingPost: WallPost = { ...wallPost, status: 'pending' };
         wall.store.addPending(pendingPost);
         if (!this.paused) this.emit('pending', wall.id, pendingPost);
       } else {
         wall.store.add(wallPost);
         if (!this.paused) this.emit('post', wall.id, wallPost);
+        this.resumeFromWaiting(wall);
       }
       this.scheduleStateEmit(wall.id);
     }
@@ -697,15 +903,32 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
 
       survivors.sort((a, b) => b.timeUs - a.timeUs);
 
-      if (this.settings.moderationMode === 'approve') {
-        for (const post of survivors) {
+      // 確定の直前にプロフィールを引き直す。取り込み中に解決が終わっていれば
+      // 最初の描画からアイコンと表示名が出る。未解決なら従来どおり後から
+      // profile イベントで差し替わる (resolveAuthor が解決を予約する)。
+      for (const post of survivors) {
+        const resolved = this.hub.resolveAuthor(post.did);
+        // 未解決のときはハンドルに DID が入った仮の値が返る。上書きすると
+        // すでに分かっているハンドルを潰してしまうため、解決済みだけを当てる。
+        if (resolved.displayName !== undefined || resolved.avatar !== undefined) {
+          post.author = { ...post.author, ...resolved };
+        }
+      }
+
+      // 取り込んだ投稿もライブと同じ基準で振り分ける。
+      const visible: WallPost[] = [];
+      for (const post of survivors) {
+        if (this.requiresApproval(wall, post.matchedTags, post.matchedKeywords, post.matchedExcludes ?? [])) {
           const pendingPost: WallPost = { ...post, status: 'pending' };
           wall.store.addPending(pendingPost);
           if (!this.paused) this.emit('pending', wall.id, pendingPost);
+        } else {
+          visible.push(post);
         }
-      } else {
-        wall.store.addHistory(survivors);
-        if (!this.paused) this.emit('history', wall.id, survivors);
+      }
+      if (visible.length > 0) {
+        wall.store.addHistory(visible);
+        if (!this.paused) this.emit('history', wall.id, visible);
       }
       this.scheduleStateEmit(wall.id);
     }
@@ -776,8 +999,17 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       terms: wall.terms,
       eventTitle: this.settings.title,
       eventSubtitle: this.settings.subtitle,
+      showBlueskyLogo: this.settings.showBlueskyLogo !== false,
       paused: this.paused,
-      moderationMode: this.settings.moderationMode,
+      moderationMode: this.effectiveModerationMode(wall),
+      moderationSource: wall.moderationMode === 'inherit' ? 'tenant' : 'wall',
+      wallModerationMode: wall.moderationMode,
+      keywordRequireApproval: this.effectiveKeywordApproval(wall),
+      wallKeywordRequireApproval: wall.keywordRequireApproval,
+      tenantModerationMode: this.settings.moderationMode,
+      tenantKeywordRequireApproval: this.settings.keywordRequireApproval,
+      screen: wall.screen,
+      screenImageUrl: wall.screenImageUrl(),
       jetstream: this.hub.getStatus(),
       stats: wall.store.getStats(),
     };

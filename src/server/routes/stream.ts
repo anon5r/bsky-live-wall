@@ -12,10 +12,18 @@ import type { HubRegistry } from '../hub-registry.js';
 import { getTenant } from '../tenant-context.js';
 
 /**
+ * 配線済みのテナント。二重配線 (イベントが 2 回流れる) を防ぐ。
+ * 起動時・テナント作成時・SSE 接続時のどこから呼ばれても 1 回だけ効くようにする。
+ */
+const wired = new WeakSet<TenantRuntime>();
+
+/**
  * テナントの `WallSource` イベントを `HubRegistry` (SSE) へ中継する配線。
- * テナントごとに 1 回だけ呼ぶ (起動時に既存のテナント分、以後はテナント作成時に 1 回)。
+ * 何度呼んでも配線は 1 回だけ行われる。
  */
 export function wireTenantBroadcast(tenant: TenantRuntime, hubs: HubRegistry): void {
+  if (wired.has(tenant)) return;
+  wired.add(tenant);
   const { tenantId } = tenant;
   // 接続のないウォールへは配信しないよう peek で確認する。
   tenant.on('post', (wallId, post) => hubs.peek(tenantId, wallId)?.broadcast('post', post));
@@ -41,6 +49,10 @@ export function registerStreamRoutes(app: FastifyInstance, config: AppConfig, hu
     if (!wall) {
       return reply.code(404).send({ error: 'wall_not_found' });
     }
+
+    // 起動順やテナントの作られ方に関わらず、接続の時点で中継が張られていることを
+    // 保証する。配線済みなら何もしない。
+    wireTenantBroadcast(tenant, hubs);
 
     // Fastify のライフサイクルを抜けて raw ストリームとして扱う。
     reply.hijack();

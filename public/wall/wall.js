@@ -42,15 +42,23 @@
   // ---------------------------------------------------------------------
   const wallEl = document.getElementById('wall');
   const waitingEl = document.getElementById('waiting-screen');
+  const waitingMessageEl = document.getElementById('waiting-message');
   const waitingHashtagEl = document.getElementById('waiting-hashtag');
   const waitingHintEl = document.getElementById('waiting-hint');
+  const waitingNoteEl = document.getElementById('waiting-note');
+  const waitingImageEl = document.getElementById('waiting-image');
+  const waitingImageImgEl = document.getElementById('waiting-image-img');
+  const waitingImageCaptionEl = document.getElementById('waiting-image-caption');
+  const headerEl = document.getElementById('header');
   const titleEl = document.getElementById('event-title');
   const subtitleEl = document.getElementById('event-subtitle');
   const hashtagsEl = document.getElementById('hashtags');
   const statDisplayedEl = document.getElementById('stat-displayed');
   const statusDotEl = document.getElementById('status-dot');
   const statusTextEl = document.getElementById('status-text');
+  const clockBlockEl = document.getElementById('clock-block');
   const clockEl = document.getElementById('clock');
+  const clockSecEl = document.getElementById('clock-sec');
   const newPostsEl = document.getElementById('new-posts');
   const newPostsCountEl = document.getElementById('new-posts-count');
 
@@ -63,8 +71,18 @@
       columns: 1,
       cardTtlSec: 0,
       showImages: true,
+      showClock: true,
+      showSeconds: true,
+      showTerms: true,
+      // キーワードは会場に見せる必要がないため既定で出さない。
+      showKeywords: false,
     },
     hashtags: [],
+    // 会場モニターの画面モード (通常 / 待機 / 休憩 / 終演)。
+    screen: { mode: 'wall' },
+    screenImageUrl: null,
+    // 直近に適用したウォール状態。表示設定が変わったときの再描画に使う。
+    lastWallState: null,
     paused: false,
     // uri -> { post, el, timeEl }
     cards: new Map(),
@@ -123,6 +141,16 @@
     if (queryOverrides.noimages) {
       state.display.showImages = false;
     }
+
+    // 監視語の見せ方が変わることがあるため、ヘッダを描き直す。
+    if (state.lastWallState) {
+      renderHashtags(state.lastWallState.hashtags, state.lastWallState.terms);
+    }
+
+    // 時計は非表示にできる。秒は時計を出しているときだけ意味を持つ。
+    const clockVisible = state.display.showClock !== false;
+    clockBlockEl.hidden = !clockVisible;
+    if (clockVisible) tickClock();
 
     const columns = state.display.columns || 1;
     document.documentElement.style.setProperty('--columns', String(columns));
@@ -467,9 +495,81 @@
     updateWaitingScreen();
   }
 
+  /**
+   * 画面モードに応じて案内画面を出す。
+   *   wall    : 投稿が 1 件も無いときだけ待機画面を出す (従来の挙動)
+   *   waiting : 常に待機画面
+   *   break   : 休憩の案内
+   *   ended   : 終演の案内
+   * 休憩・終演は投稿があっても案内を優先する。会場の進行に合わせるため。
+   */
   function updateWaitingScreen() {
+    const mode = (state.screen && state.screen.mode) || 'wall';
     const empty = state.order.length === 0;
-    waitingEl.classList.toggle('visible', empty);
+    const visible = mode === 'wall' ? empty : true;
+    waitingEl.classList.toggle('visible', visible);
+
+    // 休憩・終演は投稿の上に重ねる。ヘッダ (タグと時計) は隠さずに残したいので、
+    // 覆う範囲をヘッダの下からにする。ヘッダの高さは文字サイズで変わるため都度測る。
+    const overlay = mode === 'break' || mode === 'ended';
+    waitingEl.classList.toggle('waiting-overlay', overlay);
+    if (overlay && headerEl) {
+      waitingEl.style.top = headerEl.offsetHeight + 'px';
+    } else {
+      waitingEl.style.top = '';
+    }
+    renderScreenMessage(mode);
+  }
+
+  /** モードごとの文言・ハッシュタグ・画像を描き分ける。 */
+  function renderScreenMessage(mode) {
+    const screen = state.screen || {};
+    const tags = (state.hashtags || []).map((t) => (t.startsWith('#') ? t : '#' + t));
+
+    if (mode === 'break' || mode === 'ended') {
+      const headline = mode === 'break' ? screen.breakHeadline : screen.endedHeadline;
+      const note = mode === 'break' ? screen.breakNote : screen.endedNote;
+      waitingMessageEl.textContent = headline || (mode === 'break' ? '休憩中' : '本日はありがとうございました');
+      // 休憩は再開時刻を、終演はハッシュタグを大きく見せる。
+      waitingHashtagEl.replaceChildren();
+      if (mode === 'break') {
+        if (note) appendWaitingBadge(note, 'waiting-hashtag-item waiting-badge-break');
+      } else {
+        tags.forEach((tag) => appendWaitingBadge(tag, 'waiting-hashtag-item'));
+      }
+      waitingHintEl.textContent = '';
+      waitingNoteEl.textContent = mode === 'ended' ? note || '' : '';
+    } else {
+      waitingMessageEl.textContent = screen.waitingHeadline || '投稿を待っています…';
+      waitingNoteEl.textContent = '';
+      renderWaitingScreen(tags);
+    }
+
+    renderScreenImage(mode);
+  }
+
+  function appendWaitingBadge(text, className) {
+    const item = document.createElement('span');
+    item.className = className;
+    item.textContent = text;
+    waitingHashtagEl.appendChild(item);
+  }
+
+  /** 任意画像 (QR など)。通常モードでは出さない。 */
+  function renderScreenImage(mode) {
+    const screen = state.screen || {};
+    const show = mode !== 'wall' && screen.showImage === true && !!state.screenImageUrl;
+    waitingImageEl.hidden = !show;
+    if (!show) return;
+
+    if (waitingImageImgEl.getAttribute('src') !== state.screenImageUrl) {
+      waitingImageImgEl.setAttribute('src', state.screenImageUrl);
+    }
+    waitingImageEl.className =
+      'waiting-image waiting-image-' + (screen.imagePosition || 'bottom-right') +
+      ' waiting-image-' + (screen.imageSize || 'medium');
+    waitingImageCaptionEl.textContent = screen.imageCaption || '';
+    waitingImageCaptionEl.hidden = !screen.imageCaption;
   }
 
   // ---------------------------------------------------------------------
@@ -479,14 +579,24 @@
    * 監視対象をヘッダに並べる。
    * terms が来ていればハッシュタグとキーワードを区別して表示し、
    * 古い形式 (hashtags のみ) でも動くようにフォールバックする。
+   *
+   * 何を出すかはウォールの表示設定で決まる。
+   *   showTerms=false    : ヘッダには何も出さない
+   *   showKeywords=false : ハッシュタグだけを出す (既定)
+   * 待機画面のハッシュタグ表示はこの設定に関係なく維持する。投稿者に付けて
+   * もらう必要があるものなので、会場に見せないと運用が成り立たないため。
    */
   function renderHashtags(tags, terms) {
     const list = Array.isArray(terms) && terms.length > 0
       ? terms
       : (tags || []).map((t) => ({ value: t, type: 'hashtag' }));
 
+    const visible = state.display.showTerms === false
+      ? []
+      : list.filter((term) => term.type !== 'keyword' || state.display.showKeywords === true);
+
     hashtagsEl.replaceChildren();
-    list.forEach((term) => {
+    visible.forEach((term) => {
       const pill = document.createElement('span');
       pill.className = 'tag-pill tag-pill-' + term.type;
       pill.textContent =
@@ -498,7 +608,8 @@
 
     // 待機画面には、投稿者に付けてもらう必要があるハッシュタグだけを出す。
     // キーワードは投稿者に入力を促すものではないため含めない。
-    renderWaitingScreen(list.filter((t) => t.type === 'hashtag').map((t) => t.value));
+    state.hashtags = list.filter((t) => t.type === 'hashtag').map((t) => t.value);
+    updateWaitingScreen();
   }
 
   // 待機画面はハッシュタグ本体と補助メッセージを分けて描画する。
@@ -506,34 +617,98 @@
   function renderWaitingScreen(tags) {
     waitingHashtagEl.replaceChildren();
     const normalized = tags.map((t) => (t.startsWith('#') ? t : '#' + t));
+    const screen = state.screen || {};
 
     if (normalized.length === 0) {
       // ハッシュタグが無くてもキーワードだけで監視している場合がある。
-      const hasKeyword =
-        Array.isArray(wallState.terms) && wallState.terms.some((t) => t.type === 'keyword');
+      const terms = (state.lastWallState && state.lastWallState.terms) || [];
+      const hasKeyword = terms.some((t) => t.type === 'keyword');
       waitingHintEl.textContent = hasKeyword
         ? 'キーワードで監視しています。該当する投稿があると表示されます。'
         : '監視対象が設定されていません。管理画面から設定してください。';
       return;
     }
 
-    normalized.forEach((tag) => {
-      const item = document.createElement('span');
-      item.className = 'waiting-hashtag-item';
-      item.textContent = tag;
-      waitingHashtagEl.appendChild(item);
-    });
+    normalized.forEach((tag) => appendWaitingBadge(tag, 'waiting-hashtag-item'));
 
+    // 補足は管理画面で編集できる。未設定なら従来の文言を使う。
     waitingHintEl.textContent =
-      normalized.length === 1
+      screen.waitingHint ||
+      (normalized.length === 1
         ? 'このハッシュタグをつけて投稿すると、この画面に表示されます'
-        : 'いずれかのハッシュタグをつけて投稿すると、この画面に表示されます';
+        : 'いずれかのハッシュタグをつけて投稿すると、この画面に表示されます');
+  }
+
+  // Font Awesome (Free) のブランドアイコン bluesky。
+  // 会場モニターはフォントを読み込まない軽量ページなので、SVG として埋め込む。
+  // Icons: CC BY 4.0 (https://fontawesome.com/license/free)
+  const BLUESKY_ICON_PATH =
+    'M407.8 294.7c-3.3-.4-6.7-.8-10-1.3 3.4 .4 6.7 .9 10 1.3zM288 227.1C261.9 176.4 190.9 81.9 124.9 ' +
+    '35.3 61.6-9.4 37.5-1.7 21.6 5.5 3.3 13.8 0 41.9 0 58.4S9.1 194 15 213.9c19.5 65.7 89.1 87.9 153.2 ' +
+    '80.7 3.3-.5 6.6-.9 10-1.4-3.3 .5-6.6 1-10 1.4-93.9 14-177.3 48.2-67.9 169.9 120.3 124.6 164.8-26.7 ' +
+    '187.7-103.4 22.9 76.7 49.2 222.5 185.6 103.4 102.4-103.4 28.1-156-65.8-169.9-3.3-.4-6.7-.8-10-1.3 ' +
+    '3.4 .4 6.7 .9 10 1.3 64.1 7.1 133.6-15.1 153.2-80.7 5.9-19.9 15-138.9 15-155.5s-3.3-44.7-21.6-52.9' +
+    'c-15.8-7.1-40-14.9-103.2 29.8-66.1 46.6-137.1 141.1-163.2 191.8z';
+
+  function createBlueskyLogo() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 576 512');
+    svg.setAttribute('class', 'bluesky-logo');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('fill', 'currentColor');
+    path.setAttribute('d', BLUESKY_ICON_PATH);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  /**
+   * イベントタイトルを描画する。
+   * タイトルに含まれる「Bluesky」は、ロゴ表示が有効なら Font Awesome の
+   * ブランドアイコンに置き換える (読み上げ用に元のタイトルを aria-label に残す)。
+   * ユーザー入力を innerHTML に渡さないよう、必ずテキストノードとして組み立てる。
+   */
+  function renderEventTitle(title, showLogo) {
+    titleEl.replaceChildren();
+    titleEl.setAttribute('aria-label', title);
+
+    if (!showLogo) {
+      titleEl.textContent = title;
+      titleEl.removeAttribute('aria-label');
+      return;
+    }
+
+    const pattern = /bluesky/gi;
+    let lastIndex = 0;
+    let match;
+    let replaced = false;
+    while ((match = pattern.exec(title)) !== null) {
+      if (match.index > lastIndex) {
+        titleEl.appendChild(document.createTextNode(title.slice(lastIndex, match.index)));
+      }
+      titleEl.appendChild(createBlueskyLogo());
+      replaced = true;
+      lastIndex = pattern.lastIndex;
+    }
+    if (lastIndex < title.length) {
+      titleEl.appendChild(document.createTextNode(title.slice(lastIndex)));
+    }
+    // 「Bluesky」を含まないタイトルでは読み上げ用の別名を残す意味がない。
+    if (!replaced) titleEl.removeAttribute('aria-label');
   }
 
   function applyWallState(wallState) {
     if (!wallState) return;
+    state.lastWallState = wallState;
 
-    if (wallState.eventTitle) titleEl.textContent = wallState.eventTitle;
+    if (wallState.screen) state.screen = wallState.screen;
+    if (wallState.screenImageUrl !== undefined) state.screenImageUrl = wallState.screenImageUrl;
+
+    if (wallState.eventTitle) {
+      renderEventTitle(wallState.eventTitle, wallState.showBlueskyLogo !== false);
+    }
     // 複数ウォール運用では、どのウォールを映しているかが分かるようにする。
     const parts = [];
     if (wallState.wallName && wallState.wallName !== wallState.eventTitle) {
@@ -546,6 +721,8 @@
       state.hashtags = wallState.hashtags;
       renderHashtags(wallState.hashtags, wallState.terms);
     }
+
+    updateWaitingScreen();
 
     state.paused = !!wallState.paused;
     if (state.paused) {
@@ -753,11 +930,21 @@
   }
 
   function tickClock() {
+    if (state.display.showClock === false) return;
     const now = new Date();
     const hh = String(now.getHours()).padStart(2, '0');
     const mm = String(now.getMinutes()).padStart(2, '0');
     const ss = String(now.getSeconds()).padStart(2, '0');
-    clockEl.textContent = hh + ':' + mm + ':' + ss;
+    if (state.display.showSeconds !== false) {
+      clockEl.textContent = hh + ':' + mm;
+      clockSecEl.textContent = ss;
+      clockSecEl.hidden = false;
+    } else {
+      // 秒を出さないときは、区切りの「:」を 1 秒ごとに点滅させて時計が
+      // 動いていることを示す。
+      clockEl.textContent = hh + (now.getSeconds() % 2 ? ':' : ' ') + mm;
+      clockSecEl.hidden = true;
+    }
   }
 
   setInterval(tickRelativeTimes, 10000);
@@ -771,7 +958,10 @@
   function startDemoMode() {
     setStatus('connected');
     applyWallState({
-      eventTitle: 'デモイベント 2026',
+      eventTitle: 'Bluesky Live Wall デモ',
+      showBlueskyLogo: true,
+      screen: { mode: 'wall', waitingHeadline: 'ハッシュタグはこちら' },
+      screenImageUrl: null,
       eventSubtitle: 'Bluesky Live Wall 動作確認用',
       hashtags: ['#デモ', '#テスト'],
       paused: false,

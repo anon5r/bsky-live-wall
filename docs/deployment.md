@@ -60,7 +60,8 @@ ADMIN_ACTORS=alice.bsky.social,bob.example.com
 
 - `PUBLIC_URL` が設定されていること
 - `PUBLIC_URL` が https であること (localhost 開発時のみ `OAUTH_ALLOW_HTTP=true` で回避)
-- `ADMIN_ACTORS` が空でないこと (空だと誰もログインできない)
+- `ADMIN_ACTORS` が空でないこと (空だと最初の 1 人がログインできない。
+  以後は管理画面から招待したメンバーも `.env` を触らずにログインできる)
 
 #### 認証と認可を分けている
 

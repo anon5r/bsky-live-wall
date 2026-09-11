@@ -20,6 +20,8 @@ import type {
   TenantSettings,
   TenantStore,
 } from '../shared/tenancy.js';
+import { defaultWallScreen } from '../shared/config.js';
+import type { ApprovalSetting, ExcludePolicy, WallModerationMode, WallScreen } from '../shared/types.js';
 
 const logger = createLogger('sqlite-store');
 
@@ -49,6 +51,12 @@ interface WallRow {
   display: string;
   is_default: number;
   position: number;
+  moderation_mode: string | null;
+  keyword_require_approval: string | null;
+  exclude_terms: string | null;
+  exclude_policy: string | null;
+  screen: string | null;
+  screen_image: string | null;
 }
 
 interface ModListRow {
@@ -104,12 +112,46 @@ function rowToWall(row: WallRow): PersistedWall {
     terms: parseJsonColumn(row.terms, [], `walls.terms (id=${row.id})`),
     display: parseJsonColumn(
       row.display,
-      { maxCards: 40, columns: 1, cardTtlSec: 0, showImages: true },
+      {
+        maxCards: 40,
+        columns: 1,
+        cardTtlSec: 0,
+        showImages: true,
+        showClock: true,
+        showSeconds: true,
+        showTerms: true,
+        showKeywords: false,
+      },
       `walls.display (id=${row.id})`
     ),
     isDefault: row.is_default !== 0,
     position: row.position,
+    moderationMode: toWallModerationMode(row.moderation_mode),
+    keywordRequireApproval: toApprovalSetting(row.keyword_require_approval),
+    excludeTerms: parseJsonColumn(row.exclude_terms ?? '[]', [], `walls.exclude_terms (id=${row.id})`),
+    excludePolicy: toExcludePolicy(row.exclude_policy),
+    // 画面モードは後から足した項目。保存値に無いキーは既定で埋める。
+    screen: {
+      ...defaultWallScreen(),
+      ...parseJsonColumn<Partial<WallScreen>>(row.screen ?? '{}', {}, `walls.screen (id=${row.id})`),
+    },
+    screenImage: row.screen_image
+      ? parseJsonColumn(row.screen_image, null, `walls.screen_image (id=${row.id})`)
+      : null,
   };
+}
+
+function toExcludePolicy(raw: string | null | undefined): ExcludePolicy {
+  return raw === 'approve' ? 'approve' : 'reject';
+}
+
+/** 列の値が想定外でも落とさず、継承 ('inherit') として扱う。 */
+function toWallModerationMode(raw: string | null | undefined): WallModerationMode {
+  return raw === 'open' || raw === 'approve' ? raw : 'inherit';
+}
+
+function toApprovalSetting(raw: string | null | undefined): ApprovalSetting {
+  return raw === 'always' || raw === 'never' ? raw : 'inherit';
 }
 
 function rowToModList(row: ModListRow): PersistedModList {
@@ -294,6 +336,13 @@ export class SqliteTenantStore implements TenantStore {
   }
 
   upsertWall(wall: PersistedWall): PersistedWall {
+    // 承認設定は後から足した列。古い呼び出し元が渡さなくても継承として保存する。
+    const moderationMode = toWallModerationMode(wall.moderationMode);
+    const keywordRequireApproval = toApprovalSetting(wall.keywordRequireApproval);
+    const excludeTerms = Array.isArray(wall.excludeTerms) ? wall.excludeTerms : [];
+    const excludePolicy = toExcludePolicy(wall.excludePolicy);
+    const screen = { ...defaultWallScreen(), ...(wall.screen ?? {}) };
+    const screenImage = wall.screenImage ?? null;
     this.db.exec('BEGIN');
     try {
       if (wall.isDefault) {
@@ -305,14 +354,23 @@ export class SqliteTenantStore implements TenantStore {
 
       this.db
         .prepare(
-          `INSERT INTO walls (tenant_id, id, name, terms, display, is_default, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO walls
+             (tenant_id, id, name, terms, display, is_default, position,
+              moderation_mode, keyword_require_approval, exclude_terms, exclude_policy,
+              screen, screen_image)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (tenant_id, id) DO UPDATE SET
              name = excluded.name,
              terms = excluded.terms,
              display = excluded.display,
              is_default = excluded.is_default,
-             position = excluded.position`
+             position = excluded.position,
+             moderation_mode = excluded.moderation_mode,
+             keyword_require_approval = excluded.keyword_require_approval,
+             exclude_terms = excluded.exclude_terms,
+             exclude_policy = excluded.exclude_policy,
+             screen = excluded.screen,
+             screen_image = excluded.screen_image`
         )
         .run(
           wall.tenantId,
@@ -321,7 +379,13 @@ export class SqliteTenantStore implements TenantStore {
           JSON.stringify(wall.terms),
           JSON.stringify(wall.display),
           wall.isDefault ? 1 : 0,
-          wall.position
+          wall.position,
+          moderationMode,
+          keywordRequireApproval,
+          JSON.stringify(excludeTerms),
+          excludePolicy,
+          JSON.stringify(screen),
+          screenImage ? JSON.stringify(screenImage) : null
         );
 
       this.db.exec('COMMIT');
@@ -330,7 +394,7 @@ export class SqliteTenantStore implements TenantStore {
       throw err;
     }
 
-    return { ...wall };
+    return { ...wall, moderationMode, keywordRequireApproval, excludeTerms, excludePolicy, screen, screenImage };
   }
 
   deleteWall(tenantId: string, wallId: string): boolean {

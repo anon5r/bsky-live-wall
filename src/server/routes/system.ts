@@ -70,6 +70,124 @@ export function registerSystemAdminRoutes(
     });
   });
 
+  /**
+   * 全テナント横断の利用者アカウント一覧。
+   *
+   * テナント単位のメンバー画面では、同じ人がどのテナントに属しているかを追えない。
+   * ここではメンバーシップをアカウントごとにまとめ、ログイン中のセッション数も添える。
+   */
+  app.get('/api/admin/system/accounts', async (request, reply) => {
+    if (requireSystemAdmin(request, reply)) return;
+
+    const accounts = new Map<
+      string,
+      {
+        did: string;
+        handle: string;
+        isSystemAdmin: boolean;
+        memberships: { tenantId: string; tenantName: string; role: string }[];
+        sessions: number;
+        lastSeenAt: number | null;
+      }
+    >();
+
+    for (const tenant of registry.list()) {
+      const meta = tenant.getTenant();
+      for (const member of tenant.listMembers()) {
+        const entry = accounts.get(member.did) ?? {
+          did: member.did,
+          handle: member.handle,
+          isSystemAdmin: isSystemAdmin(member.did),
+          memberships: [],
+          sessions: 0,
+          lastSeenAt: null,
+        };
+        // ハンドルは変わりうる。より新しい記録で上書きする。
+        entry.handle = member.handle || entry.handle;
+        entry.memberships.push({ tenantId: meta.id, tenantName: meta.name, role: member.role });
+        accounts.set(member.did, entry);
+      }
+    }
+
+    for (const session of sessions.list()) {
+      if (!session.did) continue;
+      const entry = accounts.get(session.did) ?? {
+        did: session.did,
+        handle: session.handle ?? session.did,
+        isSystemAdmin: isSystemAdmin(session.did),
+        memberships: [],
+        sessions: 0,
+        lastSeenAt: null,
+      };
+      entry.sessions += 1;
+      entry.lastSeenAt = Math.max(entry.lastSeenAt ?? 0, session.createdAt);
+      accounts.set(session.did, entry);
+    }
+
+    return reply.send({
+      accounts: [...accounts.values()].sort((a, b) => b.sessions - a.sessions || a.handle.localeCompare(b.handle)),
+      // システム管理者は `.env` の SYSTEM_ADMINS で決まる。画面からは変更できない。
+      systemAdminEditable: false,
+    });
+  });
+
+  /** 所属テナントと役割を付け替える。テナント側のメンバー API と同じ制約が効く。 */
+  app.post<{ Body: { tenantId?: unknown; did?: unknown; handle?: unknown; role?: unknown } }>(
+    '/api/admin/system/accounts/membership',
+    async (request, reply) => {
+      if (requireSystemAdmin(request, reply)) return;
+      const { tenantId, did, handle, role } = request.body ?? {};
+      if (typeof tenantId !== 'string' || typeof did !== 'string' || did === '') {
+        return badRequest(reply, 'tenantId と did は必須です');
+      }
+      if (role !== 'owner' && role !== 'moderator') {
+        return badRequest(reply, "role は 'owner' か 'moderator' で指定してください");
+      }
+      const tenant = registry.get(tenantId);
+      if (!tenant) return badRequest(reply, 'テナントが見つかりません');
+
+      try {
+        const existing = tenant.listMembers().find((m) => m.did === did);
+        const member = existing
+          ? tenant.updateMemberRole(did, role)
+          : tenant.addMember({ did, handle: typeof handle === 'string' && handle ? handle : did, role });
+        if (!member) return badRequest(reply, 'メンバーを更新できませんでした');
+        logger.info('システム管理: 所属を変更', { tenantId, did, role });
+        return reply.send({ member });
+      } catch (err) {
+        return badRequest(reply, err instanceof Error ? err.message : '所属を変更できませんでした');
+      }
+    }
+  );
+
+  app.delete<{ Params: { tenantId: string; did: string } }>(
+    '/api/admin/system/accounts/membership/:tenantId/:did',
+    async (request, reply) => {
+      if (requireSystemAdmin(request, reply)) return;
+      const tenant = registry.get(request.params.tenantId);
+      if (!tenant) return badRequest(reply, 'テナントが見つかりません');
+      try {
+        const removed = tenant.removeMember(decodeURIComponent(request.params.did));
+        if (!removed) return badRequest(reply, 'メンバーが見つかりません');
+        logger.info('システム管理: 所属を解除', { tenantId: request.params.tenantId });
+        return reply.send({ ok: true });
+      } catch (err) {
+        return badRequest(reply, err instanceof Error ? err.message : '所属を解除できませんでした');
+      }
+    }
+  );
+
+  /** そのアカウントのログインをすべて失効させる。 */
+  app.post<{ Params: { did: string } }>(
+    '/api/admin/system/accounts/:did/revoke',
+    async (request, reply) => {
+      if (requireSystemAdmin(request, reply)) return;
+      const revoked = sessions.revokeByDid(decodeURIComponent(request.params.did));
+      logger.info('システム管理: セッションを失効', { did: request.params.did, revoked });
+      return reply.send({ revoked });
+    }
+  );
+
   app.get('/api/admin/system/tenants', async (request, reply) => {
     if (requireSystemAdmin(request, reply)) return;
     const tenants = registry.list().map((t) => {

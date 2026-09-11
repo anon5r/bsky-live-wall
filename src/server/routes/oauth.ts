@@ -17,7 +17,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { NodeOAuthClient } from '@atproto/oauth-client-node';
 import type { AppConfig } from '../../shared/config.js';
 import { createLogger } from '../../shared/logger.js';
-import { checkTenantPermission } from '../permission.js';
+import { checkTenantPermission, isSystemAdmin } from '../permission.js';
+import type { TenantRegistry } from '../../shared/ingest-contracts.js';
 import { getTenant } from '../tenant-context.js';
 import { AdminSessionStore, SESSION_COOKIE } from '../admin-session.js';
 import {
@@ -37,6 +38,49 @@ export interface OAuthRuntime {
   reloadActors(): Promise<{ allowed: AllowedActor[]; revoked: number }>;
 }
 
+/**
+ * ログイン後に戻す経路として許すのは管理画面だけ。
+ * `/admin` と `/e/<tenant>/admin` のみを通し、それ以外 (外部 URL や別経路への
+ * 誘導) は既定の `/admin` に落とす。オープンリダイレクトを作らないため。
+ */
+const RETURN_TO_RE = /^\/(?:admin\/?|e\/[A-Za-z0-9][A-Za-z0-9_-]{0,62}\/admin\/?)$/;
+
+const DEFAULT_RETURN_TO = '/admin';
+
+export function safeReturnTo(raw: unknown): string {
+  if (typeof raw !== 'string' || raw === '') return DEFAULT_RETURN_TO;
+  return RETURN_TO_RE.test(raw) ? raw : DEFAULT_RETURN_TO;
+}
+
+/** 戻り先にエラー種別を付ける。管理画面が読み取ってメッセージを出す。 */
+function withError(returnTo: string, code: string): string {
+  return `${returnTo}?error=${encodeURIComponent(code)}`;
+}
+
+/**
+ * `.env` の許可リストに載っていなくても、管理画面から招待された人はログインできる。
+ *
+ * 招待の実体はテナントのメンバー表であり (管理画面の「メンバー」)、どのテナントで
+ * 何ができるかは `checkTenantPermission` がリクエストごとに見る。ここを許可リスト
+ * だけで閉じてしまうと、招待したモデレーターが入口で弾かれてしまう。
+ * システム管理者 (`SYSTEM_ADMINS`) も同じ理由で通す。
+ */
+export function findInvitedActor(did: string, registry?: TenantRegistry): AllowedActor | undefined {
+  const handle = findMemberHandle(did, registry);
+  if (handle !== undefined) return { did, handle };
+  // メンバー表に無くても、システム管理者は全テナントを管理できる立場なので通す。
+  return isSystemAdmin(did) ? { did, handle: did } : undefined;
+}
+
+function findMemberHandle(did: string, registry?: TenantRegistry): string | undefined {
+  if (!registry) return undefined;
+  for (const tenant of registry.listForDid(did)) {
+    const member = tenant.listMembers().find((m) => m.did === did);
+    if (member) return member.handle || did;
+  }
+  return undefined;
+}
+
 /** ハンドルの形式を軽く検証する。厳密な解決はライブラリに任せる。 */
 function looksLikeActor(input: string): boolean {
   if (input.startsWith('did:')) return input.length <= 256;
@@ -46,7 +90,8 @@ function looksLikeActor(input: string): boolean {
 export async function registerOAuthRoutes(
   app: FastifyInstance,
   config: AppConfig,
-  sessions: AdminSessionStore
+  sessions: AdminSessionStore,
+  registry?: TenantRegistry
 ): Promise<OAuthRuntime | undefined> {
   const enabled = config.admin.authMode === 'oauth' || config.admin.authMode === 'both';
 
@@ -78,34 +123,43 @@ export async function registerOAuthRoutes(
     reply.type('application/json').send(buildClientMetadata(config))
   );
 
-  app.post<{ Body: { handle?: unknown } }>('/api/auth/login', async (request, reply) => {
-    const { handle } = request.body ?? {};
-    if (typeof handle !== 'string' || !looksLikeActor(handle.trim().replace(/^@/, ''))) {
-      return reply.code(400).send({ error: 'bad_request', message: 'ハンドルの形式が不正です' });
+  app.post<{ Body: { handle?: unknown; returnTo?: unknown } }>(
+    '/api/auth/login',
+    async (request, reply) => {
+      const { handle, returnTo } = request.body ?? {};
+      if (typeof handle !== 'string' || !looksLikeActor(handle.trim().replace(/^@/, ''))) {
+        return reply.code(400).send({ error: 'bad_request', message: 'ハンドルの形式が不正です' });
+      }
+      try {
+        // 認可から戻ったときに元のテナントの管理画面へ帰れるよう、経路を state に載せる。
+        const url = await client.authorize(handle.trim().replace(/^@/, ''), {
+          state: safeReturnTo(returnTo),
+        });
+        return reply.send({ url: url.toString() });
+      } catch (err) {
+        log.warn('認可 URL の生成に失敗しました', err);
+        return reply
+          .code(400)
+          .send({ error: 'authorize_failed', message: 'アカウントを解決できませんでした' });
+      }
     }
-    try {
-      const url = await client.authorize(handle.trim().replace(/^@/, ''));
-      return reply.send({ url: url.toString() });
-    } catch (err) {
-      log.warn('認可 URL の生成に失敗しました', err);
-      return reply
-        .code(400)
-        .send({ error: 'authorize_failed', message: 'アカウントを解決できませんでした' });
-    }
-  });
+  );
 
   app.get(CALLBACK_PATH, async (request, reply) => {
     const params = new URLSearchParams(request.url.split('?')[1] ?? '');
+    // state には認可を始めた画面の経路が入っている (safeReturnTo で検証済み)。
+    let returnTo = DEFAULT_RETURN_TO;
     try {
-      const { session } = await client.callback(params);
+      const { session, state } = await client.callback(params);
+      returnTo = safeReturnTo(state);
       const did = session.did;
 
-      const actor = allowed.get(did);
+      const actor = allowed.get(did) ?? findInvitedActor(did, registry);
       if (!actor) {
         log.warn('許可リストにないアカウントのログインを拒否', { did });
         // 認可自体は成立しているため、こちら側のセッションは作らずに破棄する。
         await client.revoke(did).catch(() => undefined);
-        return reply.redirect('/admin?error=not_allowed');
+        return reply.redirect(withError(returnTo, 'not_allowed'));
       }
 
       const adminSession = sessions.create(
@@ -120,10 +174,10 @@ export async function registerOAuthRoutes(
           (secure ? '; Secure' : '')
       );
       log.info('OAuth ログイン', { handle: actor.handle, did, ip: request.ip });
-      return reply.redirect('/admin');
+      return reply.redirect(returnTo);
     } catch (err) {
       log.warn('OAuth コールバックの処理に失敗しました', err);
-      return reply.redirect('/admin?error=oauth_failed');
+      return reply.redirect(withError(returnTo, 'oauth_failed'));
     }
   });
 

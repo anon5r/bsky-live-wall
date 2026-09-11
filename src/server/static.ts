@@ -10,6 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createLogger } from '../shared/logger.js';
 import type { TenantRegistry } from '../shared/ingest-contracts.js';
 import type { TenancyMode } from '../shared/tenancy.js';
@@ -68,7 +70,8 @@ export function resolvePublicDir(): string {
 export async function registerStatic(
   app: FastifyInstance,
   registry: TenantRegistry,
-  mode: TenancyMode
+  mode: TenancyMode,
+  uploadDir?: string
 ): Promise<void> {
   const publicDir = resolvePublicDir();
 
@@ -77,6 +80,22 @@ export async function registerStatic(
     prefix: '/assets/',
     decorateReply: true,
   });
+
+  // 会場モニターに出す任意画像 (QR など)。会場モニター自体が公開ページなので
+  // ここも認証は掛けない。ファイル名は推測できない乱数にしてある。
+  if (uploadDir) {
+    const resolved = resolve(uploadDir);
+    mkdirSync(resolved, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: resolved,
+      prefix: '/uploads/',
+      decorateReply: false,
+      index: false,
+      // 差し替えたときに古い画像が残らないよう、URL のクエリで更新時刻を渡している。
+      cacheControl: true,
+      maxAge: 60_000,
+    });
+  }
 
   const sendWall = async (_request: unknown, reply: FastifyReply): Promise<unknown> =>
     reply.sendFile('wall/index.html');

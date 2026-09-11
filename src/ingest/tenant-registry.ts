@@ -9,6 +9,7 @@
  * single モードでは `.env` から作った 1 テナントだけを持ち、DB を使わない。
  * multi モードでは `TenantStore` (SQLite) を出どころにする。
  */
+import { defaultBackfillPresets } from '../shared/config.js';
 import type { AppConfig } from '../shared/config.js';
 import type { IngestHub, TenantRegistry, TenantRuntime } from '../shared/ingest-contracts.js';
 import type { Tenant, TenantSettings, TenantStore } from '../shared/tenancy.js';
@@ -40,6 +41,8 @@ function settingsFromConfig(config: AppConfig): TenantSettings {
     filterLabeled: config.moderation.filterLabeled,
     allowedLangs: [...config.moderation.allowedLangs],
     startupBackfillMinutes: config.jetstream.startupBackfillMinutes,
+    backfillPresets: defaultBackfillPresets(),
+    showBlueskyLogo: config.event.showBlueskyLogo,
   };
 }
 

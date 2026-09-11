@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #2f9bff; }
+    a:hover { color: #6ec1ff; }
+
+    .screen-root {
+      width: 1280px;
+      height: 784px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #0c0e12;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+      color: #f4f7ff;
+    }
+
+    .mode-btn { cursor: pointer; }
+  </style>
+</helmet>
+
+<div class="screen-root">
+
+  <!-- 会場モニター本体 (1280x720 / 16:9) -->
+  <div style="position: relative; width: 1280px; height: 720px; flex: 0 0 auto; background: linear-gradient(160deg, #060a16 0%, #0c1230 100%); display: flex; flex-direction: column;">
+
+    <!-- ヘッダは常に出る。休憩中も終演後もハッシュタグが読める -->
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 34px; border-bottom: 1px solid rgba(140, 170, 255, 0.22); flex: 0 0 auto;">
+      <div style="display: flex; align-items: center; gap: 16px; min-width: 0;">
+        <span style="font-size: 26px; font-weight: 800; white-space: nowrap;">
+          <svg viewBox="0 0 576 512" width="24" height="21" style="vertical-align: -2px; margin-right: 3px;" aria-hidden="true"><path fill="#0085ff" d="M407.8 294.7c-3.3-.4-6.7-.8-10-1.3 3.4 .4 6.7 .9 10 1.3zM288 227.1C261.9 176.4 190.9 81.9 124.9 35.3 61.6-9.4 37.5-1.7 21.6 5.5 3.3 13.8 0 41.9 0 58.4S9.1 194 15 213.9c19.5 65.7 89.1 87.9 153.2 80.7 3.3-.5 6.6-.9 10-1.4-3.3 .5-6.6 1-10 1.4-93.9 14-177.3 48.2-67.9 169.9 120.3 124.6 164.8-26.7 187.7-103.4 22.9 76.7 49.2 222.5 185.6 103.4 102.4-103.4 28.1-156-65.8-169.9-3.3-.4-6.7-.8-10-1.3 3.4 .4 6.7 .9 10 1.3 64.1 7.1 133.6-15.1 153.2-80.7 5.9-19.9 15-138.9 15-155.5s-3.3-44.7-21.6-52.9c-15.8-7.1-40-14.9-103.2 29.8-66.1 46.6-137.1 141.1-163.2 191.8z"></path></svg>
+          Live Wall
+        </span>
+        <span style="padding: 4px 14px; border-radius: 999px; font-size: 15px; font-weight: 700; background: #2f9bff; color: #04101f;">#myevent2026</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 22px; color: #9aa8d6;">
+        <span style="display: inline-flex; align-items: baseline; gap: 5px;">
+          <span style="font-size: 20px; font-weight: 700; color: #f4f7ff;">{{ mode.count }}</span>
+          <span style="font-size: 13px;">件の投稿</span>
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px;">
+          <span style="{{ mode.dotStyle }}"></span>
+          {{ mode.status }}
+        </span>
+        <span style="display: inline-flex; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums;">
+          <span style="font-size: 26px; font-weight: 700; line-height: 1;">14:12</span>
+          <span style="font-size: 14px; line-height: 1; padding-bottom: 1px;">40</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- 画面本体: モードごとに差し替わる -->
+    <div style="flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 0 80px; text-align: center; min-height: 0;">
+
+      <!-- 通常: 投稿カードが流れる -->
+      <sc-if value="{{ show.wall }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 900px;">
+          <sc-for list="{{ cards }}" as="c" hint-placeholder-count="3">
+            <div style="display: flex; gap: 16px; padding: 18px 22px; border-radius: 16px; background: #141a33; border: 1px solid rgba(140, 170, 255, 0.22); text-align: left;">
+              <span style="flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; background: #1b2242;"></span>
+              <div style="min-width: 0;">
+                <div style="display: flex; align-items: baseline; gap: 10px;">
+                  <span style="font-size: 17px; font-weight: 700;">{{ c.name }}</span>
+                  <span style="font-size: 14px; color: #9aa8d6;">{{ c.handle }}</span>
+                </div>
+                <p style="margin: 6px 0 0; font-size: 19px; line-height: 1.5;">{{ c.text }}</p>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- 待機 / 休憩 / 終演 -->
+      <sc-if value="{{ show.message }}" hint-placeholder-val="{{ true }}">
+        <p style="{{ mode.headlineStyle }}">{{ mode.headline }}</p>
+
+        <sc-if value="{{ mode.hasBadge }}" hint-placeholder-val="{{ true }}">
+          <p style="{{ mode.badgeStyle }}">{{ mode.badge }}</p>
+        </sc-if>
+
+        <p style="{{ mode.hintStyle }}">{{ mode.hint }}</p>
+      </sc-if>
+    </div>
+
+    <!-- 任意画像 (QR コードなど)。通常モードでは出さない -->
+    <sc-if value="{{ show.message }}" hint-placeholder-val="{{ true }}">
+      <div style="position: absolute; right: 34px; bottom: 30px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px; border-radius: 14px; background: rgba(244, 247, 255, 0.08); border: 1px solid rgba(140, 170, 255, 0.24);">
+        <svg viewBox="0 0 29 29" width="128" height="128" shape-rendering="crispEdges" aria-hidden="true">
+          <rect width="29" height="29" fill="#ffffff"></rect>
+          <path fill="#04101f" d="M1 1h7v7h-7z M3 3h3v3h-3z M21 1h7v7h-7z M23 3h3v3h-3z M1 21h7v7h-7z M3 23h3v3h-3z M10 1h2v2h-2z M13 2h2v2h-2z M16 1h2v3h-2z M10 5h3v2h-3z M15 5h2v2h-2z M18 6h2v2h-2z M10 9h2v2h-2z M14 9h3v2h-3z M19 9h3v2h-3z M24 10h3v2h-3z M1 10h3v2h-3z M6 11h3v2h-3z M11 12h2v3h-2z M15 13h3v2h-3z M20 12h2v2h-2z M25 14h2v3h-2z M2 15h3v2h-3z M7 16h2v2h-2z M12 17h3v2h-3z M17 16h2v3h-2z M21 17h3v2h-3z M10 20h2v2h-2z M14 21h3v2h-3z M19 20h3v3h-3z M24 21h3v2h-3z M11 24h3v2h-3z M16 25h2v2h-2z M20 25h3v2h-3z M25 25h2v2h-2z"></path>
+        </svg>
+        <span style="font-size: 15px; font-weight: 700; color: #f4f7ff;">受付はこちら</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- プレビュー用の切り替え (会場モニターには出ません) -->
+  <div style="display: flex; align-items: center; gap: 10px; padding: 0 20px; height: 64px; flex: 0 0 auto; background: #1d2026; border-top: 1px solid #33363e;">
+    <span style="font-size: 11px; font-weight: 700; letter-spacing: 0.06em; color: #9298a4; margin-right: 4px;">プレビュー</span>
+    <div class="mode-btn" style="{{ btn.wall }}" onClick="{{ pick.wall }}">通常</div>
+    <div class="mode-btn" style="{{ btn.waiting }}" onClick="{{ pick.waiting }}">待機</div>
+    <div class="mode-btn" style="{{ btn.break }}" onClick="{{ pick.break }}">休憩</div>
+    <div class="mode-btn" style="{{ btn.ended }}" onClick="{{ pick.ended }}">終演</div>
+    <span style="margin-left: auto; font-size: 12px; color: #9298a4;">{{ mode.caption }}</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":1280,"height":784}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'waiting' };
+  }
+
+  btn(active) {
+    const base =
+      'display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 16px;' +
+      'border-radius: 6px; font-size: 13px; font-weight: 600;';
+    return active
+      ? base + 'background: #3b82f6; color: #fff;'
+      : base + 'background: #24272e; color: #9298a4; border: 1px solid #33363e;';
+  }
+
+  modeVals() {
+    const m = this.state.mode;
+    const dot = 'width: 9px; height: 9px; border-radius: 50%;';
+    const hint = 'margin: 0; font-size: 17px; font-weight: 500; color: #9aa8d6; line-height: 1.6;';
+
+    if (m === 'wall') {
+      return {
+        count: '128',
+        status: '接続中',
+        dotStyle: dot + 'background: #34d399; box-shadow: 0 0 8px #34d399;',
+        headline: '',
+        headlineStyle: '',
+        hasBadge: false,
+        badge: '',
+        badgeStyle: '',
+        hint: '',
+        hintStyle: hint,
+        caption: '通常モード: 投稿カードが流れます',
+      };
+    }
+
+    if (m === 'break') {
+      return {
+        count: '128',
+        status: '休憩中',
+        dotStyle: dot + 'background: #ffcc4d; box-shadow: 0 0 8px #ffcc4d;',
+        headline: '休憩中',
+        headlineStyle: 'margin: 0; font-size: 76px; font-weight: 800; letter-spacing: 0.04em; line-height: 1.1;',
+        hasBadge: true,
+        badge: '14:30 再開',
+        badgeStyle:
+          'margin: 4px 0 0; font-size: 44px; font-weight: 800; color: #04101f; background: #ffcc4d;' +
+          'border-radius: 12px; padding: 4px 22px; letter-spacing: 0.02em;',
+        hint: '投稿は引き続き受け付けています。再開後にまとめて表示します。',
+        hintStyle: hint,
+        caption: '休憩モード: 再開時刻を大きく出します',
+      };
+    }
+
+    if (m === 'ended') {
+      return {
+        count: '312',
+        status: '終演',
+        dotStyle: dot + 'background: #6c78a3;',
+        headline: '本日はありがとうございました',
+        headlineStyle: 'margin: 0; font-size: 54px; font-weight: 800; line-height: 1.25; text-wrap: pretty;',
+        hasBadge: true,
+        badge: '#myevent2026',
+        badgeStyle:
+          'margin: 10px 0 0; font-size: 40px; font-weight: 800; color: #04101f; background: #2f9bff;' +
+          'border-radius: 12px; padding: 4px 22px;',
+        hint: '投稿は引き続きこのタグで残ります。[アーカイブ公開予定日] に会場の様子を公開します。',
+        hintStyle: hint,
+        caption: '終演モード: 締めの挨拶と次の案内',
+      };
+    }
+
+    return {
+      count: '0',
+      status: '接続中',
+      dotStyle: dot + 'background: #34d399; box-shadow: 0 0 8px #34d399;',
+      headline: 'ハッシュタグはこちら',
+      headlineStyle: 'margin: 0; font-size: 44px; font-weight: 800; opacity: 0.9; line-height: 1.2;',
+      hasBadge: true,
+      badge: '#myevent2026',
+      badgeStyle:
+        'margin: 8px 0 0; font-size: 72px; font-weight: 800; color: #04101f; background: #2f9bff;' +
+        'border-radius: 16px; padding: 4px 26px; line-height: 1.15; letter-spacing: 0.01em;',
+      hint: 'このタグをつけて投稿すると、この画面に表示されます',
+      hintStyle: hint,
+      caption: '待機モード: 見出しと補足は管理画面で編集できます',
+    };
+  }
+
+  renderVals() {
+    const m = this.state.mode;
+    return {
+      mode: this.modeVals(),
+      show: { wall: m === 'wall', message: m !== 'wall' },
+      cards: [
+        { name: '田中 太郎', handle: '@taro.bsky.social', text: '基調講演はじまりました！ #myevent2026' },
+        { name: 'Yuki', handle: '@yuki.example.com', text: 'ライブウォール動いてる #myevent2026' },
+        { name: '中村 あおい', handle: '@aoi.bsky.social', text: '会場 Wi-Fi 快適です #myevent2026' },
+      ],
+      btn: {
+        wall: this.btn(m === 'wall'),
+        waiting: this.btn(m === 'waiting'),
+        break: this.btn(m === 'break'),
+        ended: this.btn(m === 'ended'),
+      },
+      pick: {
+        wall: () => this.setState({ mode: 'wall' }),
+        waiting: () => this.setState({ mode: 'waiting' }),
+        break: () => this.setState({ mode: 'break' }),
+        ended: () => this.setState({ mode: 'ended' }),
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

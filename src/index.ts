@@ -119,13 +119,17 @@ async function main(): Promise<void> {
   }
 
   const registry = createTenantRegistry(config);
-  const server = await createServer(config, registry);
 
   // Jetstream への接続は HTTP リスンより先に開始する。
   // 起動直後にモニターを開いても取りこぼしが起きないようにするため。
   // multi モードはテナントが 0 件でも起動できる (registry.start() は
   // テナントが無くても hub の接続だけ張って正常に戻る)。
+  //
+  // createServer より先に呼ぶこと。multi モードのテナントは registry.start() で
+  // 初めて組み立てられるため、先に createServer を呼ぶと SSE への中継配線
+  // (wireTenantBroadcast) が 1 件も行われず、会場モニターに投稿が届かなくなる。
   await registry.start();
+  const server = await createServer(config, registry);
   await server.listen({ port: config.server.port, host: config.server.host });
 
   log.info('起動しました', {
