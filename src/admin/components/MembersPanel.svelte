@@ -10,8 +10,8 @@
     addMember,
     updateMemberRole,
     requestRemoveMember,
-    searchActors,
   } from '../lib/store.svelte.js';
+  import { searchActors } from '../lib/bsky.js';
   import { enterKey } from '../lib/ime.js';
   import ActorAvatar from './ActorAvatar.svelte';
 

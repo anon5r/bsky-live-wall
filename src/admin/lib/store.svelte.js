@@ -7,6 +7,7 @@
  * ここに定義した関数を呼び出すだけでよい。
  */
 import { apiFetch, callAdminApi, setUnauthorizedHandler, setTenantPrefix, tenantPath } from './api.js';
+import { setAppviewUrl, withProfiles } from './bsky.js';
 
 const STORAGE_THEME_KEY = 'bsky_live_wall_admin_theme';
 const STORAGE_WALL_KEY = 'bsky_live_wall_admin_wall_id';
@@ -662,6 +663,7 @@ function renderState(data) {
   if (data.settings) patchObject(store.settings, data.settings);
 
   renderBackfillStatus(data.backfill);
+  setAppviewUrl(data.appviewUrl);
   refreshSessionInfo();
 }
 
@@ -1120,7 +1122,7 @@ export async function loadSystemAccounts() {
     }
     if (!res.ok) return;
     const data = await res.json();
-    patchArrayField('systemAccounts', data.accounts, (a) => (a ? a.did : null));
+    patchArrayField('systemAccounts', await withProfiles(data.accounts), (a) => (a ? a.did : null));
     store.systemAdminEditable = !!data.systemAdminEditable;
   } catch {
     showToast('アカウントを取得できませんでした');
@@ -1419,28 +1421,9 @@ export async function loadMembers() {
       return;
     }
     const data = await res.json();
-    patchArrayField('members', data.members, (m) => (m ? m.did : null));
+    patchArrayField('members', await withProfiles(data.members), (m) => (m ? m.did : null));
   } catch {
     showToast('メンバー一覧を取得できませんでした');
-  }
-}
-
-/**
- * 入力中の文字列からアカウント候補を引く (Bluesky の typeahead)。
- * 候補は確認用なので、失敗しても静かに空を返す。
- */
-export async function searchActors(query) {
-  const q = (query || '').trim();
-  if (q === '') return [];
-  try {
-    const res = await apiFetch(
-      tenantPath('/api/admin/actors/search') + '?q=' + encodeURIComponent(q)
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.actors) ? data.actors : [];
-  } catch {
-    return [];
   }
 }
 
@@ -1552,7 +1535,9 @@ export async function loadSystemOverview() {
       return;
     }
     if (!res.ok) return;
-    patchObjectField('systemOverview', await res.json());
+    const overview = await res.json();
+    setAppviewUrl(overview.appviewUrl);
+    patchObjectField('systemOverview', overview);
   } catch {
     // 無視。次のポーリングで再取得を試みる。
   }

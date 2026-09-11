@@ -35,7 +35,6 @@ import {
 import { checkTenantPermission } from '../permission.js';
 import { getTenant } from '../tenant-context.js';
 import { resolveActor } from '../oauth/client.js';
-import { createActorDirectory } from '../actor-directory.js';
 import { IMAGE_EXTENSIONS, type ImageStore } from '../image-store.js';
 
 const logger = createLogger('admin');
@@ -330,8 +329,6 @@ export function registerAdminRoutes(
   images: ImageStore
 ): void {
   const adminAuth = createAdminAuth(config, sessions);
-  // メンバー一覧と候補表示のためのプロフィール解決。公開 AppView のみを見る。
-  const actors = createActorDirectory(config);
 
   app.addHook('preHandler', (request, reply, done) => {
     // このインスタンスには `/api/stream`・`/api/posts`・`/api/walls` など
@@ -387,6 +384,9 @@ export function registerAdminRoutes(
       jetstreamHosts,
       backfill: tenant.getBackfillStatus(),
       walls: tenant.getWalls(),
+      // 管理画面はプロフィールと候補検索を AppView へ直接問い合わせる。
+      // 独自の AppView を指している場合もあるため、その宛先を伝える。
+      appviewUrl: config.appview.url,
       // 管理画面がテナント設定を編集できるよう、状態と一緒に返す。
       // 秘匿すべき値は含めない (認証情報はここに無い)。
       settings: {
@@ -1127,26 +1127,6 @@ export function registerAdminRoutes(
 
   // ---- メンバー管理 (owner とシステム管理者のみ。single モードには概念が無い) ----
 
-  /**
-   * メンバーに Bluesky のプロフィール (表示名・アバター) を添える。
-   * 引けなかったアカウントは保存済みのハンドルだけで返す。
-   */
-  async function withProfiles<T extends { did: string; handle: string }>(
-    members: T[]
-  ): Promise<(T & { displayName?: string; avatar?: string })[]> {
-    if (members.length === 0) return [];
-    const profiles = await actors.profiles(members.map((m) => m.did));
-    return members.map((member) => {
-      const profile = profiles.get(member.did);
-      if (!profile) return { ...member };
-      return {
-        ...member,
-        handle: profile.handle,
-        ...(profile.displayName ? { displayName: profile.displayName } : {}),
-        ...(profile.avatar ? { avatar: profile.avatar } : {}),
-      };
-    });
-  }
 
   app.get('/api/admin/members', async (request, reply) => {
     const tenant = getTenant(request);
@@ -1154,15 +1134,7 @@ export function registerAdminRoutes(
       return badRequest(reply, '単一テナント運用ではメンバー管理を使いません');
     }
     if (requireRole(request, reply, tenant, 'owner')) return;
-    return reply.send({ members: await withProfiles(tenant.listMembers()) });
-  });
-
-  // 追加したいアカウントを探す。入力の確認用なので owner のみに開ける。
-  app.get<{ Querystring: { q?: string } }>('/api/admin/actors/search', async (request, reply) => {
-    const tenant = getTenant(request);
-    if (requireRole(request, reply, tenant, 'owner')) return;
-    const q = typeof request.query?.q === 'string' ? request.query.q : '';
-    return reply.send({ actors: await actors.search(q) });
+    return reply.send({ members: tenant.listMembers() });
   });
 
   app.post<{ Body: { actor?: unknown; role?: unknown } }>(
@@ -1188,7 +1160,7 @@ export function registerAdminRoutes(
       try {
         const member = tenant.addMember({ did: resolved.did, handle: resolved.handle, role });
         recordAudit('member-add', `${member.handle} (${member.role})`, request, undefined, sessions);
-        return reply.send({ member: (await withProfiles([member]))[0] });
+        return reply.send({ member });
       } catch (err) {
         return badRequest(reply, err instanceof Error ? err.message : 'メンバーを追加できません');
       }
@@ -1214,7 +1186,7 @@ export function registerAdminRoutes(
           return reply.code(404).send({ error: 'member_not_found' });
         }
         recordAudit('member-update', `${member.handle} -> ${member.role}`, request, undefined, sessions);
-        return reply.send({ member: (await withProfiles([member]))[0] });
+        return reply.send({ member });
       } catch (err) {
         return badRequest(reply, err instanceof Error ? err.message : '役割を変更できません');
       }
