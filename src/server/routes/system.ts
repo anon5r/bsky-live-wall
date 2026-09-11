@@ -17,6 +17,7 @@ import { AdminSessionStore } from '../admin-session.js';
 import { badRequest, createAdminAuth, getAuthedDid, routePath } from '../admin-auth.js';
 import { isSystemAdmin } from '../permission.js';
 import { resolveActor } from '../oauth/client.js';
+import { createActorDirectory } from '../actor-directory.js';
 import type { HubRegistry } from '../hub-registry.js';
 import { looksLikeValidId } from './tenants.js';
 import { wireTenantBroadcast } from './stream.js';
@@ -33,6 +34,7 @@ export function registerSystemAdminRoutes(
 ): void {
   const startedAt = Date.now();
   const adminAuth = createAdminAuth(config, sessions);
+  const actors = createActorDirectory(config);
 
   app.addHook('preHandler', (request, reply, done) => {
     // `app` に直接登録するため、`/api/admin/system` 配下だけに絞る。
@@ -124,8 +126,22 @@ export function registerSystemAdminRoutes(
       accounts.set(session.did, entry);
     }
 
+    // Bluesky の表示名とアバターを添える。誰のアカウントか一目で分かるようにする。
+    const list = [...accounts.values()].sort(
+      (a, b) => b.sessions - a.sessions || a.handle.localeCompare(b.handle)
+    );
+    const profiles = await actors.profiles(list.map((a) => a.did));
     return reply.send({
-      accounts: [...accounts.values()].sort((a, b) => b.sessions - a.sessions || a.handle.localeCompare(b.handle)),
+      accounts: list.map((account) => {
+        const profile = profiles.get(account.did);
+        if (!profile) return account;
+        return {
+          ...account,
+          handle: profile.handle,
+          ...(profile.displayName ? { displayName: profile.displayName } : {}),
+          ...(profile.avatar ? { avatar: profile.avatar } : {}),
+        };
+      }),
       // システム管理者は `.env` の SYSTEM_ADMINS で決まる。画面からは変更できない。
       systemAdminEditable: false,
     });

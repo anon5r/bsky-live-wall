@@ -1771,6 +1771,13 @@ button {
   user-select: none;
 }
 
+.member-sub-handle {
+  margin-inline-start: 6px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+
 .member-avatar-owner {
   border-color: var(--color-primary);
 }
@@ -2018,4 +2025,119 @@ button {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+
+/* ---- Bluesky のアバター (一覧・候補・プレビューで共通) ---- */
+.actor-avatar {
+  width: var(--actor-avatar-size, 40px);
+  height: var(--actor-avatar-size, 40px);
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-surface-alt);
+}
+
+.actor-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  font-size: calc(var(--actor-avatar-size, 40px) * 0.42);
+  line-height: 1;
+  user-select: none;
+}
+
+/* 投稿一覧の投稿者。アバターを左に置き、名前とハンドルを縦に並べる。 */
+.post-item-actor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.post-item-actor-name {
+  min-width: 0;
+}
+
+.post-item-actor .post-author,
+.post-item-actor .post-handle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* メンバー追加の候補。入力欄の下に重ねる。 */
+.actor-suggest {
+  position: relative;
+}
+
+.actor-suggest-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow, 0 6px 18px rgb(0 0 0 / 0.12));
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.actor-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.actor-suggest-item:hover,
+.actor-suggest-item:focus-visible {
+  background: var(--color-surface-alt);
+}
+
+.actor-suggest-main {
+  min-width: 0;
+}
+
+.actor-suggest-name {
+  display: block;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actor-suggest-handle {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actor-suggest-empty {
+  padding: 8px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* 会場モニターのプレビューでもアバターを出す (無ければ従来の丸のまま)。 */
+.monitor-card-avatar-img {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
 }

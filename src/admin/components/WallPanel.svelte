@@ -497,7 +497,11 @@
               <div class="monitor-cards">
                 {#each (store.recent || []).slice(0, 3) as post (post.uri)}
                   <div class="monitor-card">
-                    <span class="monitor-card-avatar"></span>
+                    {#if post.author && post.author.avatar}
+                      <img class="monitor-card-avatar-img" src={post.author.avatar} alt="" loading="lazy" referrerpolicy="no-referrer" />
+                    {:else}
+                      <span class="monitor-card-avatar"></span>
+                    {/if}
                     <div class="monitor-card-body">
                       <span class="monitor-card-name">{(post.author && (post.author.displayName || post.author.handle)) || '投稿者'}</span>
                       <p class="monitor-card-text">{post.text}</p>

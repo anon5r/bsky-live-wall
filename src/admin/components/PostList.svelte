@@ -6,6 +6,7 @@
    */
   import { formatTime, approvePost, hidePost, unhidePost, blockActor } from '../lib/store.svelte.js';
   import InlineConfirmButton from './InlineConfirmButton.svelte';
+  import ActorAvatar from './ActorAvatar.svelte';
 
   let {
     posts,
@@ -31,10 +32,20 @@
   {#each posts as post (post.uri)}
     <li class="post-item">
       <div class="post-item-head">
-        <span class="post-author">{displayNameOf(post)}</span>
-        {#if post.author && post.author.handle}
-          <span class="post-handle">@{post.author.handle}</span>
-        {/if}
+        <div class="post-item-actor">
+          <ActorAvatar
+            avatar={(post.author && post.author.avatar) || ''}
+            handle={(post.author && post.author.handle) || ''}
+            displayName={(post.author && post.author.displayName) || ''}
+            size={32}
+          />
+          <span class="post-item-actor-name">
+            <span class="post-author">{displayNameOf(post)}</span>
+            {#if post.author && post.author.handle}
+              <span class="post-handle">@{post.author.handle}</span>
+            {/if}
+          </span>
+        </div>
         <span class="post-time">{formatTime(post.createdAt)}</span>
       </div>
       <div class="post-text">{post.text || ''}</div>

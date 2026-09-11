@@ -1425,6 +1425,25 @@ export async function loadMembers() {
   }
 }
 
+/**
+ * 入力中の文字列からアカウント候補を引く (Bluesky の typeahead)。
+ * 候補は確認用なので、失敗しても静かに空を返す。
+ */
+export async function searchActors(query) {
+  const q = (query || '').trim();
+  if (q === '') return [];
+  try {
+    const res = await apiFetch(
+      tenantPath('/api/admin/actors/search') + '?q=' + encodeURIComponent(q)
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.actors) ? data.actors : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function addMember(actor, role) {
   const trimmed = (actor || '').trim();
   if (!trimmed) {

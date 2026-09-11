@@ -22,6 +22,7 @@
     requestRevokeAccountSessions,
   } from '../lib/store.svelte.js';
   import { enterKey } from '../lib/ime.js';
+  import ActorAvatar from './ActorAvatar.svelte';
 
   onMount(() => {
     startSystemPolling();
@@ -98,10 +99,6 @@
       loadSystemAccounts();
     }
   });
-
-  function initialOf(handle) {
-    return (handle || '?').replace(/^@/, '').charAt(0).toUpperCase();
-  }
 
   function formatLastSeen(ts) {
     if (!ts) return '-';
@@ -315,14 +312,15 @@
                 onclick={() => (selectedDid = a.did)}
               >
                 <span class={'member-avatar' + (a.isSystemAdmin ? ' member-avatar-owner' : '')}>
-                  <span class="member-avatar-initial" aria-hidden="true">{initialOf(a.handle)}</span>
+                  <ActorAvatar avatar={a.avatar || ''} handle={a.handle} displayName={a.displayName || ''} size={40} />
                   <i class={(a.isSystemAdmin ? 'fa-solid fa-user-shield' : 'fa-solid fa-user') + ' member-avatar-badge'} aria-hidden="true"></i>
                 </span>
               </button>
 
               <div class="member-main">
                 <div class="member-handle">
-                  {a.handle}
+                  {a.displayName || a.handle}
+                  {#if a.displayName}<span class="member-sub-handle">@{a.handle}</span>{/if}
                   {#if a.isSystemAdmin}
                     <span class="account-admin-badge">システム管理者</span>
                   {/if}
