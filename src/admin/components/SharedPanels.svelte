@@ -23,6 +23,7 @@
   import PostList from './PostList.svelte';
   import InlineConfirmButton from './InlineConfirmButton.svelte';
   import MembersPanel from './MembersPanel.svelte';
+  import LangFilter from './LangFilter.svelte';
 
   // メンバー管理は multi モードの owner / システム管理者にのみ見せる。
   // moderator や single モードでは概念自体が無いため出さない。
@@ -573,6 +574,19 @@
   </h2>
   <p>全ウォールに効く除外。ウォールごとの承認設定とは別です。</p>
 </header>
+
+<section class="panel">
+  <h2 class="panel-title">
+    <i class="fa-solid fa-language fa-fw" aria-hidden="true"></i> 言語フィルタ
+    <span class="scope-tag scope-tag-shared"><i class="fa-solid fa-globe fa-fw" aria-hidden="true"></i> テナント共通</span>
+  </h2>
+  <LangFilter
+    langs={store.settings.allowedLangs || []}
+    readonly={!canEditSettings}
+    onChange={(next) => updateTenantSettings({ allowedLangs: next })}
+    note="ここで外した言語はどのウォールにも入りません。ウォールごとにさらに狭めることもできます。"
+  />
+</section>
 
 <section class="panel">
   <h2 class="panel-title">

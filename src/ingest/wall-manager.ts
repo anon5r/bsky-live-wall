@@ -57,6 +57,7 @@ import { ModListManager } from './modlist.js';
 import { matchHashtags } from './hashtag-matcher.js';
 import { matchKeywords } from './keyword-matcher.js';
 import { evaluate, type ModerationRules } from './moderator.js';
+import { normalizeLangs } from '../shared/lang.js';
 import { mapToWallPost } from './post-mapper.js';
 import { Wall, displayFromConfig, needsApproval, normalizeWallId } from './wall.js';
 
@@ -155,6 +156,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         // single モードでは `.env` の EXCLUDE_WORDS を初期値にする。
         this.store ? [] : config.event.excludeTerms,
         'reject',
+        [],
         undefined,
         null,
         this.imageBaseUrl()
@@ -206,6 +208,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       p.keywordRequireApproval ?? 'inherit',
       buildExcludeTerms(p.excludeTerms ?? []),
       p.excludePolicy ?? 'reject',
+      normalizeLangs(p.allowedLangs),
       { ...defaultWallScreen(), ...(p.screen ?? {}) },
       p.screenImage ?? null,
       this.imageBaseUrl()
@@ -239,6 +242,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       keywordRequireApproval: wall.keywordRequireApproval,
       excludeTerms: wall.excludeTerms,
       excludePolicy: wall.excludePolicy,
+      allowedLangs: wall.allowedLangs,
       screen: wall.screen,
       screenImage: wall.screenImage,
     });
@@ -453,6 +457,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
     display?: Partial<DisplayConfig>;
     moderationMode?: WallModerationMode;
     keywordRequireApproval?: ApprovalSetting;
+    allowedLangs?: string[];
   }): WallSummary {
     if (this.walls.size >= MAX_WALLS) {
       throw new Error(`ウォールは ${MAX_WALLS} 個までです`);
@@ -477,6 +482,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       input.keywordRequireApproval ?? 'inherit',
       [],
       'reject',
+      normalizeLangs(input.allowedLangs),
       undefined,
       null,
       this.imageBaseUrl()
@@ -513,12 +519,14 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       display?: Partial<DisplayConfig>;
       moderationMode?: WallModerationMode;
       keywordRequireApproval?: ApprovalSetting;
+      allowedLangs?: string[];
     }
   ): WallSummary | undefined {
     const wall = this.walls.get(id);
     if (!wall) return undefined;
     if (input.name !== undefined && input.name.trim() !== '') wall.name = input.name.trim();
     if (input.display) wall.display = { ...wall.display, ...input.display };
+    if (input.allowedLangs !== undefined) wall.allowedLangs = normalizeLangs(input.allowedLangs);
     const moderationChanged =
       input.moderationMode !== undefined || input.keywordRequireApproval !== undefined;
     if (input.moderationMode !== undefined) wall.moderationMode = input.moderationMode;
@@ -844,6 +852,14 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       const tags = matchHashtags(record, wall.normalizedHashtags);
       const keywords = matchKeywords(record, wall.terms);
       if (tags.length === 0 && keywords.length === 0) continue;
+
+      // 言語で絞っているウォールは、一致しない投稿をここで捨てる。
+      // 監視語には当たっているため、統計には「一致したが取り込まなかった」と残す。
+      if (!wall.matchesLang(record)) {
+        wall.store.recordMatched();
+        wall.store.recordRejected();
+        continue;
+      }
 
       // 除外キーワードに当たった投稿は、扱いが 'reject' ならここで捨てる。
       // 承認待ちにも直近の投稿にも残さず、運営の目にも触れさせない。

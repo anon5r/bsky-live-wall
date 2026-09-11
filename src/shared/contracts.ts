@@ -99,6 +99,7 @@ export interface WallSource {
     display?: Partial<DisplayConfig>;
     moderationMode?: WallModerationMode;
     keywordRequireApproval?: ApprovalSetting;
+    allowedLangs?: string[];
   }): WallSummary;
   /** ウォールを削除する。既定ウォールは削除できない。 */
   deleteWall(id: string): boolean;
@@ -110,6 +111,7 @@ export interface WallSource {
       display?: Partial<DisplayConfig>;
       moderationMode?: WallModerationMode;
       keywordRequireApproval?: ApprovalSetting;
+      allowedLangs?: string[];
     }
   ): WallSummary | undefined;
 

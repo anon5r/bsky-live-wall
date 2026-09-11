@@ -186,6 +186,8 @@ export interface WallSummary {
   excludeTerms: ExcludeTerm[];
   /** 除外キーワードに一致した投稿の扱い */
   excludePolicy: ExcludePolicy;
+  /** このウォールが取り込む投稿の言語。空なら全言語 (テナント設定のみが効く) */
+  allowedLangs: string[];
   /** 画面モードの設定 */
   screen: WallScreen;
   /** 任意画像の配信 URL。未設定なら null */

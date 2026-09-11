@@ -2,6 +2,7 @@
  * モデレーション判定。純関数のみ。
  */
 import type { BskyPostRecord, WallAuthor } from '../shared/types.js';
+import { matchesLang } from '../shared/lang.js';
 
 /** 除外対象とする自己申告ラベル。 */
 const NSFW_LABELS = new Set(['porn', 'sexual', 'nudity', 'graphic-media', 'sexual-figurative']);
@@ -66,12 +67,8 @@ export function evaluate(
     }
   }
 
-  if (config.allowedLangs.length > 0) {
-    const langs = (record.langs ?? []).map((l) => l.toLowerCase());
-    const hasAllowed = langs.some((l) => config.allowedLangs.includes(l));
-    if (!hasAllowed) {
-      return { ok: false, reason: 'lang' };
-    }
+  if (!matchesLang(record.langs, config.allowedLangs)) {
+    return { ok: false, reason: 'lang' };
   }
 
   return { ok: true };

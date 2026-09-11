@@ -33,6 +33,7 @@ import {
   unauthorized,
 } from '../admin-auth.js';
 import { checkTenantPermission } from '../permission.js';
+import { normalizeLangs } from '../../shared/lang.js';
 import { getTenant } from '../tenant-context.js';
 import { resolveActor } from '../oauth/client.js';
 import { IMAGE_EXTENSIONS, type ImageStore } from '../image-store.js';
@@ -399,6 +400,7 @@ export function registerAdminRoutes(
         filterLabeled: settings.filterLabeled,
         ngWords: settings.ngWords,
         ngPatterns: settings.ngPatterns,
+        allowedLangs: settings.allowedLangs,
       },
     });
   });
@@ -562,6 +564,7 @@ export function registerAdminRoutes(
       display?: unknown;
       moderationMode?: unknown;
       keywordRequireApproval?: unknown;
+      allowedLangs?: unknown;
     };
   }>(
     '/api/admin/walls/:id',
@@ -569,7 +572,8 @@ export function registerAdminRoutes(
       const tenant = getTenant(request);
       // 改名もテナント構成の変更にあたるため owner 限定。
       if (requireRole(request, reply, tenant, 'owner')) return;
-      const { name, display, moderationMode, keywordRequireApproval } = request.body ?? {};
+      const { name, display, moderationMode, keywordRequireApproval, allowedLangs } =
+        request.body ?? {};
       if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
         return badRequest(reply, 'name は空でない文字列で指定してください');
       }
@@ -589,6 +593,12 @@ export function registerAdminRoutes(
           "keywordRequireApproval は 'inherit' / 'always' / 'never' のいずれかです"
         );
       }
+      let parsedLangs: string[] | undefined;
+      if (allowedLangs !== undefined) {
+        const result = parseAllowedLangs(allowedLangs);
+        if (typeof result === 'string') return badRequest(reply, result);
+        parsedLangs = result;
+      }
       let parsedDisplay: Partial<DisplayConfig> | undefined;
       if (display !== undefined) {
         const result = parseDisplay(display);
@@ -600,6 +610,7 @@ export function registerAdminRoutes(
         ...(parsedDisplay ? { display: parsedDisplay } : {}),
         ...(mode !== undefined ? { moderationMode: mode } : {}),
         ...(keywordApproval !== undefined ? { keywordRequireApproval: keywordApproval } : {}),
+        ...(parsedLangs !== undefined ? { allowedLangs: parsedLangs } : {}),
       });
       if (!updated) return wallNotFound(reply);
       recordAudit('wall-update', updated.id, request, undefined, sessions);
@@ -678,6 +689,7 @@ export function registerAdminRoutes(
       filterLabeled?: unknown;
       ngWords?: unknown;
       ngPatterns?: unknown;
+      allowedLangs?: unknown;
     };
   }>('/api/admin/settings', async (request, reply) => {
     const tenant = getTenant(request);
@@ -756,12 +768,34 @@ export function registerAdminRoutes(
       changed.push(`${key}=${words.length}`);
     }
 
+    if (body.allowedLangs !== undefined) {
+      const langs = parseAllowedLangs(body.allowedLangs);
+      if (typeof langs === 'string') return badRequest(reply, langs);
+      patch.allowedLangs = langs;
+      changed.push(`allowedLangs=${langs.join(',') || '(全言語)'}`);
+    }
+
     if (changed.length === 0) return badRequest(reply, '変更する設定がありません');
 
     tenant.updateSettings(patch);
     recordAudit('settings', changed.join(' '), request, undefined, sessions);
     return reply.send({ settings: tenant.getTenant().settings });
   });
+
+  /**
+   * 言語フィルタの入力を整える。
+   * 空配列は「絞り込みなし (全言語)」を意味する。文字列は基底サブタグへ寄せる。
+   */
+  function parseAllowedLangs(value: unknown): string[] | string {
+    if (!Array.isArray(value)) return 'allowedLangs は配列で指定してください';
+    if (value.length > 20) return '言語は 20 件までです';
+    for (const entry of value) {
+      if (typeof entry !== 'string' || !/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(entry.trim())) {
+        return `言語コードとして解釈できません: ${String(entry)}`;
+      }
+    }
+    return normalizeLangs(value as string[]);
+  }
 
   // ---- 画面モード (会場モニターの待機・休憩・終演) ----
 

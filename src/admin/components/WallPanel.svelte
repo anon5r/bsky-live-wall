@@ -16,6 +16,7 @@
     renameWall,
     clearAll,
     updateWallModeration,
+    updateWallLangs,
     updateWallDisplay,
     setScreen,
     uploadScreenImage,
@@ -36,6 +37,7 @@
   import TermEditor from './TermEditor.svelte';
   import PostList from './PostList.svelte';
   import InlineConfirmButton from './InlineConfirmButton.svelte';
+  import LangFilter from './LangFilter.svelte';
 
   let { wall, section = 'terms' } = $props();
 
@@ -47,6 +49,8 @@
   const pendingCount = $derived(wall.pendingCount || 0);
   const recentCount = $derived(wall.postCount || 0);
   const excludeTerms = $derived(wall.excludeTerms || []);
+  const wallLangs = $derived(wall.allowedLangs || []);
+  const tenantLangs = $derived(store.settings.allowedLangs || []);
   const excludePolicy = $derived(wall.excludePolicy || 'reject');
   const moderationBadge = $derived(store.state.moderationMode === 'approve' ? '承認制' : '公開');
 
@@ -320,6 +324,21 @@
       {#if !canEditModeration}
         <p class="field-note">監視語を変更できるのはオーナーだけです。ここでは何を拾っているかだけ確認できます。</p>
       {/if}
+
+      <section class="panel">
+        <h2 class="panel-title">
+          <i class="fa-solid fa-language fa-fw" aria-hidden="true"></i> 言語フィルタ
+          <span class="scope-tag scope-tag-wall"><i class="fa-solid fa-desktop fa-fw" aria-hidden="true"></i> ウォール単位</span>
+        </h2>
+        <LangFilter
+          langs={wallLangs}
+          readonly={!canEditModeration}
+          onChange={(next) => updateWallLangs(wall.id, next)}
+          note={tenantLangs.length > 0
+            ? 'テナント全体でも ' + tenantLangs.join('、') + ' に絞っています。ここではさらに狭めるだけで、広げることはできません。'
+            : ''}
+        />
+      </section>
     {:else if section === 'moderation'}
       <header class="wall-section-head">
         <h2>

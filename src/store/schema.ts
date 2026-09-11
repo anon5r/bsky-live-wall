@@ -65,6 +65,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE walls ADD COLUMN screen TEXT NOT NULL DEFAULT '{}';
   ALTER TABLE walls ADD COLUMN screen_image TEXT;
   `,
+  // version 5: ウォール単位の言語フィルタ。既存行は空 (全言語) で始まる。
+  `
+  ALTER TABLE walls ADD COLUMN allowed_langs TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 /** DB を最新スキーマまでマイグレーションする。 */

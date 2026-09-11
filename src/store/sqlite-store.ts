@@ -21,6 +21,7 @@ import type {
   TenantStore,
 } from '../shared/tenancy.js';
 import { defaultWallScreen } from '../shared/config.js';
+import { normalizeLangs } from '../shared/lang.js';
 import type { ApprovalSetting, ExcludePolicy, WallModerationMode, WallScreen } from '../shared/types.js';
 
 const logger = createLogger('sqlite-store');
@@ -55,6 +56,7 @@ interface WallRow {
   keyword_require_approval: string | null;
   exclude_terms: string | null;
   exclude_policy: string | null;
+  allowed_langs: string | null;
   screen: string | null;
   screen_image: string | null;
 }
@@ -130,6 +132,9 @@ function rowToWall(row: WallRow): PersistedWall {
     keywordRequireApproval: toApprovalSetting(row.keyword_require_approval),
     excludeTerms: parseJsonColumn(row.exclude_terms ?? '[]', [], `walls.exclude_terms (id=${row.id})`),
     excludePolicy: toExcludePolicy(row.exclude_policy),
+    allowedLangs: normalizeLangs(
+      parseJsonColumn<string[]>(row.allowed_langs ?? '[]', [], `walls.allowed_langs (id=${row.id})`)
+    ),
     // 画面モードは後から足した項目。保存値に無いキーは既定で埋める。
     screen: {
       ...defaultWallScreen(),
@@ -341,6 +346,7 @@ export class SqliteTenantStore implements TenantStore {
     const keywordRequireApproval = toApprovalSetting(wall.keywordRequireApproval);
     const excludeTerms = Array.isArray(wall.excludeTerms) ? wall.excludeTerms : [];
     const excludePolicy = toExcludePolicy(wall.excludePolicy);
+    const allowedLangs = normalizeLangs(wall.allowedLangs);
     const screen = { ...defaultWallScreen(), ...(wall.screen ?? {}) };
     const screenImage = wall.screenImage ?? null;
     this.db.exec('BEGIN');
@@ -357,8 +363,8 @@ export class SqliteTenantStore implements TenantStore {
           `INSERT INTO walls
              (tenant_id, id, name, terms, display, is_default, position,
               moderation_mode, keyword_require_approval, exclude_terms, exclude_policy,
-              screen, screen_image)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              allowed_langs, screen, screen_image)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (tenant_id, id) DO UPDATE SET
              name = excluded.name,
              terms = excluded.terms,
@@ -369,6 +375,7 @@ export class SqliteTenantStore implements TenantStore {
              keyword_require_approval = excluded.keyword_require_approval,
              exclude_terms = excluded.exclude_terms,
              exclude_policy = excluded.exclude_policy,
+             allowed_langs = excluded.allowed_langs,
              screen = excluded.screen,
              screen_image = excluded.screen_image`
         )
@@ -384,6 +391,7 @@ export class SqliteTenantStore implements TenantStore {
           keywordRequireApproval,
           JSON.stringify(excludeTerms),
           excludePolicy,
+          JSON.stringify(allowedLangs),
           JSON.stringify(screen),
           screenImage ? JSON.stringify(screenImage) : null
         );
@@ -394,7 +402,16 @@ export class SqliteTenantStore implements TenantStore {
       throw err;
     }
 
-    return { ...wall, moderationMode, keywordRequireApproval, excludeTerms, excludePolicy, screen, screenImage };
+    return {
+      ...wall,
+      moderationMode,
+      keywordRequireApproval,
+      excludeTerms,
+      excludePolicy,
+      allowedLangs,
+      screen,
+      screenImage,
+    };
   }
 
   deleteWall(tenantId: string, wallId: string): boolean {

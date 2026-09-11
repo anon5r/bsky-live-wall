@@ -94,6 +94,8 @@ export interface PersistedWall {
   excludeTerms: ExcludeTerm[];
   /** 除外キーワードに一致した投稿の扱い。 */
   excludePolicy: ExcludePolicy;
+  /** 取り込む投稿の言語 (BCP-47 の基底サブタグ)。空なら全言語。 */
+  allowedLangs: string[];
   /** 画面モードと文言。 */
   screen: WallScreen;
   /** 任意画像。data ディレクトリ配下のファイル名で持つ。 */

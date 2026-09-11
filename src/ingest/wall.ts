@@ -28,6 +28,7 @@ import type {
 } from '../shared/types.js';
 import type { PersistedScreenImage } from '../shared/tenancy.js';
 import { PostStore } from './post-store.js';
+import { matchesLang } from '../shared/lang.js';
 
 export class Wall {
   readonly store: PostStore;
@@ -50,6 +51,8 @@ export class Wall {
     public excludeTerms: ExcludeTerm[] = [],
     /** 除外キーワードに一致した投稿の扱い。 */
     public excludePolicy: ExcludePolicy = 'reject',
+    /** 取り込む投稿の言語。空なら全言語 (テナント設定の絞り込みだけが効く)。 */
+    public allowedLangs: string[] = [],
     /** 会場モニターの画面モードと文言。 */
     public screen: WallScreen = defaultWallScreen(),
     /** 任意画像 (QR など)。実体はファイル、ここではメタだけ持つ。 */
@@ -87,6 +90,11 @@ export class Wall {
    * 本文に含まれる除外キーワードの「設定された表記」を返す。
    * 監視キーワードと同じく、正規化した部分一致で判定する。
    */
+  /** このウォールが取り込んでよい言語か。空の設定なら全言語を通す。 */
+  matchesLang(record: BskyPostRecord): boolean {
+    return matchesLang(record.langs, this.allowedLangs);
+  }
+
   matchExcludes(record: BskyPostRecord): string[] {
     if (this.excludeTerms.length === 0) return [];
     const text = normalizeKeyword(record.text ?? '');
@@ -107,6 +115,7 @@ export class Wall {
       keywordRequireApproval: this.keywordRequireApproval,
       excludeTerms: this.excludeTerms,
       excludePolicy: this.excludePolicy,
+      allowedLangs: this.allowedLangs,
       screen: this.screen,
       screenImageUrl: this.screenImageUrl(),
     };

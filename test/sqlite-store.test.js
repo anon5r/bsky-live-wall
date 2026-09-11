@@ -286,6 +286,26 @@ test('除外キーワードを指定しないウォールは「除外なし・�
   s.close();
 });
 
+test('ウォールの言語フィルタが往復する (地域付きは基底サブタグへ寄せる)', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event', { allowedLangs: ['ja', 'en-US', 'ja'] }));
+
+  const [wall] = s.listWalls('my-event');
+  assert.deepEqual(wall.allowedLangs, ['ja', 'en']);
+  s.close();
+});
+
+test('言語を指定しないウォールは全言語 (空) で始まる', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event'));
+
+  const [wall] = s.listWalls('my-event');
+  assert.deepEqual(wall.allowedLangs, []);
+  s.close();
+});
+
 test('テナント設定の showBlueskyLogo が往復する', () => {
   const s = store();
   s.createTenant(makeTenantInput());

@@ -95,6 +95,7 @@ export const store = $state({
     showBlueskyLogo: true,
     animateTitleGradient: false,
     backfillPresets: [],
+    allowedLangs: [],
     allowReplies: true,
     filterLabeled: true,
     ngWords: [],
@@ -1215,6 +1216,11 @@ export async function updateTenantSettings(patch) {
 /** ウォールの表示設定 (会場モニター側の見た目) を更新する。 */
 export async function updateWallDisplay(wallId, patch) {
   return updateWallSettings(wallId, { display: patch }, '表示設定を変更しました');
+}
+
+/** ウォール単位の言語フィルタを更新する。空配列なら全言語。 */
+export async function updateWallLangs(wallId, langs) {
+  return updateWallSettings(wallId, { allowedLangs: langs }, '言語フィルタを変更しました');
 }
 
 /** ウォール単位の承認設定を更新する。patch は moderationMode / keywordRequireApproval。 */
