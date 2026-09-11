@@ -2144,11 +2144,14 @@ button {
 
 
 /* ---- 言語フィルタ ---- */
-.lang-grid {
+.lang-selected {
+  list-style: none;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   margin: 8px 0;
+  padding: 0;
 }
 
 .lang-chip {
@@ -2162,10 +2165,6 @@ button {
   color: var(--color-text);
   font-size: 13px;
   cursor: pointer;
-}
-
-.lang-chip:hover:not(:disabled) {
-  border-color: var(--color-primary);
 }
 
 .lang-chip.is-on {
@@ -2185,6 +2184,79 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.lang-add-row {
-  align-items: center;
+.lang-clear {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 5px 6px;
+}
+
+.lang-clear:hover {
+  color: var(--color-text);
+}
+
+.lang-search {
+  display: block;
+  max-width: 360px;
+}
+
+.lang-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.lang-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lang-option:hover,
+.lang-option:focus-visible {
+  background: var(--color-surface-alt);
+}
+
+.lang-option-check {
+  color: var(--color-text-muted);
+}
+
+.lang-option.is-on .lang-option-check {
+  color: var(--color-primary);
+}
+
+.lang-option-name {
+  font-weight: 700;
+}
+
+.lang-option-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lang-empty {
+  padding: 8px;
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
