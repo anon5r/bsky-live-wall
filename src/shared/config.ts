@@ -1,5 +1,12 @@
 import 'dotenv/config';
-import type { ModerationMode, WatchTerm, WatchTermType } from './types.js';
+import type {
+  ApprovalSetting,
+  ExcludeTerm,
+  ModerationMode,
+  WallScreen,
+  WatchTerm,
+  WatchTermType,
+} from './types.js';
 import type { TenancyMode } from './tenancy.js';
 
 /** 管理画面の認証方式。 */
@@ -15,6 +22,8 @@ export interface AppConfig {
     mode: TenancyMode;
     /** テナント設定の保存先 (multi のときのみ使う)。 */
     dataFile: string;
+    /** 会場モニターに出す任意画像 (QR など) の保存先ディレクトリ。 */
+    uploadDir: string;
   };
   event: {
     /**
@@ -26,8 +35,14 @@ export interface AppConfig {
     title: string;
     subtitle: string;
     hashtags: string[];
+    /** タイトルの「Bluesky」をロゴアイコンで表示するか */
+    showBlueskyLogo: boolean;
+    /** タイトルのグラデーションをゆっくり動かすか */
+    animateTitleGradient: boolean;
     /** 比較用に正規化 (NFKC + 小文字 + 先頭 # 除去) 済みのタグ */
     normalizedHashtags: string[];
+    /** 既定ウォールの除外キーワードの初期値 */
+    excludeTerms: ExcludeTerm[];
     /** 監視語すべて (ハッシュタグ + キーワード) */
     terms: WatchTerm[];
   };
@@ -55,11 +70,21 @@ export interface AppConfig {
     columns: number;
     cardTtlSec: number;
     showImages: boolean;
+    showClock: boolean;
+    showSeconds: boolean;
+    showTerms: boolean;
+    showKeywords: boolean;
   };
   moderation: {
     mode: ModerationMode;
     ngWords: string[];
     ngPatterns: RegExp[];
+    /**
+     * ngPatterns のコンパイル前の文字列。`TenantSettings.ngPatterns` は
+     * (SQLite に保存するため) 文字列で持つので、single モードのテナントを
+     * 組み立てる際にここから復元する。
+     */
+    ngPatternSources: string[];
     blockActors: string[];
     allowReplies: boolean;
     filterLabeled: boolean;
@@ -82,6 +107,12 @@ export interface AppConfig {
      * OAuth で本人確認できても、ここに載っていなければ管理できない。
      */
     allowedActors: string[];
+    /**
+     * システム管理者 (ハンドルまたは DID)。全テナントに対して owner 相当の権限を持つ。
+     * テナントのメンバー表 (DB) ではなく `.env` に置く。テナントが 1 件も無い
+     * 初期状態でも管理者が存在する必要があり、DB が壊れても締め出されないため。
+     */
+    systemAdmins: string[];
   };
   oauth: {
     /** 公開 URL。client_id とリダイレクト先の組み立てに使う。 */
@@ -147,11 +178,11 @@ export function normalizeKeyword(word: string): string {
  * ハッシュタグとキーワードは同じ表記でも別物として扱う。
  */
 export function buildTerms(
-  input: { value: string; type: WatchTermType }[]
+  input: { value: string; type: WatchTermType; requireApproval?: ApprovalSetting }[]
 ): WatchTerm[] {
   const seen = new Set<string>();
   const out: WatchTerm[] = [];
-  for (const { value, type } of input) {
+  for (const { value, type, requireApproval } of input) {
     const trimmed = type === 'hashtag' ? value.trim().replace(/^[#＃]+/, '') : value.trim();
     if (trimmed === '') continue;
     const normalized = type === 'hashtag' ? normalizeTag(trimmed) : normalizeKeyword(trimmed);
@@ -159,7 +190,57 @@ export function buildTerms(
     const key = `${type}:${normalized}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ value: trimmed, type, normalized });
+    // 過去に保存された監視語には requireApproval が無い。継承として扱う。
+    out.push({ value: trimmed, type, normalized, requireApproval: requireApproval ?? 'inherit' });
+  }
+  return out;
+}
+
+/** システム既定の取り込み候補 (分)。テナントはこれを初期値に足し引きする。 */
+export function defaultBackfillPresets(): number[] {
+  const raw = list('BACKFILL_PRESETS', ['30', '120', '360', '1440']);
+  const out: number[] = [];
+  for (const item of raw) {
+    const n = Number.parseInt(item, 10);
+    if (Number.isFinite(n) && n > 0 && n <= 2160 && !out.includes(n)) out.push(n);
+  }
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+/** 会場モニターの画面モードの既定値。文言は管理画面から変更できる。 */
+export function defaultWallScreen(): WallScreen {
+  return {
+    mode: 'wall',
+    waitingHeadline: 'ハッシュタグはこちら',
+    waitingHint: 'このタグをつけて投稿すると、この画面に表示されます',
+    breakHeadline: '休憩中',
+    breakNote: '',
+    endedHeadline: '本日はありがとうございました',
+    endedNote: '',
+    autoResume: true,
+    showImage: false,
+    imagePosition: 'bottom-right',
+    imageSize: 'medium',
+    imageCaption: '',
+  };
+}
+
+/**
+ * 除外キーワードを正規化して組み立てる。
+ * 監視キーワードと同じ正規化 (NFKC + 小文字化) を使い、判定のぶれを無くす。
+ */
+export function buildExcludeTerms(input: { value: string }[] | string[]): ExcludeTerm[] {
+  const seen = new Set<string>();
+  const out: ExcludeTerm[] = [];
+  for (const entry of input) {
+    const raw = typeof entry === 'string' ? entry : entry.value;
+    const trimmed = (raw ?? '').trim();
+    if (trimmed === '') continue;
+    const normalized = normalizeKeyword(trimmed);
+    if (normalized === '' || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push({ value: trimmed, normalized });
   }
   return out;
 }
@@ -196,7 +277,8 @@ function list(key: string, fallback: string[] = []): string[] {
     .filter((s) => s.length > 0);
 }
 
-function compilePatterns(sources: string[]): RegExp[] {
+/** NG 正規表現の文字列表現をコンパイルする。ingest 層 (TenantSettings 由来) からも使う。 */
+export function compilePatterns(sources: string[]): RegExp[] {
   const out: RegExp[] = [];
   for (const src of sources) {
     try {
@@ -223,13 +305,17 @@ export function loadConfig(): AppConfig {
     tenancy: {
       mode: bool('MULTI_TENANT', false) ? 'multi' : 'single',
       dataFile: str('DATA_FILE', './data/wall.db'),
+      uploadDir: str('UPLOAD_DIR', './data/uploads'),
     },
     event: {
       id: normalizeSlug(str('EVENT_ID', 'default')) || 'default',
       title: str('EVENT_TITLE', 'Bluesky Live Wall'),
       subtitle: str('EVENT_SUBTITLE', ''),
+      showBlueskyLogo: bool('SHOW_BLUESKY_LOGO', true),
+      animateTitleGradient: bool('ANIMATE_TITLE_GRADIENT', false),
       hashtags: hashtags.map((t) => t.replace(/^#+/, '')),
       normalizedHashtags: [...new Set(hashtags.map(normalizeTag).filter(Boolean))],
+      excludeTerms: buildExcludeTerms(list('EXCLUDE_WORDS')),
       terms: buildTerms([
         ...hashtags.map((v) => ({ value: v, type: 'hashtag' as WatchTermType })),
         ...keywords.map((v) => ({ value: v, type: 'keyword' as WatchTermType })),
@@ -264,11 +350,17 @@ export function loadConfig(): AppConfig {
       columns: num('WALL_COLUMNS', 1),
       cardTtlSec: num('WALL_CARD_TTL_SEC', 0),
       showImages: bool('SHOW_IMAGES', true),
+      showClock: bool('WALL_SHOW_CLOCK', true),
+      showSeconds: bool('WALL_SHOW_SECONDS', true),
+      showTerms: bool('WALL_SHOW_TERMS', true),
+      // キーワードは会場に見せる必要がないため既定で出さない。
+      showKeywords: bool('WALL_SHOW_KEYWORDS', false),
     },
     moderation: {
       mode: mode as ModerationMode,
       ngWords: list('NG_WORDS').map((w) => w.toLowerCase()),
       ngPatterns: compilePatterns(list('NG_PATTERNS')),
+      ngPatternSources: list('NG_PATTERNS'),
       blockActors: list('BLOCK_ACTORS').map((a) => a.toLowerCase()),
       allowReplies: bool('ALLOW_REPLIES', true),
       filterLabeled: bool('FILTER_LABELED', true),
@@ -284,6 +376,7 @@ export function loadConfig(): AppConfig {
         ? (str('AUTH_MODE', 'token') as AuthMode)
         : 'token',
       allowedActors: list('ADMIN_ACTORS').map((a) => a.replace(/^@/, '').toLowerCase()),
+      systemAdmins: list('SYSTEM_ADMINS').map((a) => a.replace(/^@/, '').toLowerCase()),
     },
     oauth: {
       publicUrl: str('PUBLIC_URL', '').replace(/\/+$/, ''),

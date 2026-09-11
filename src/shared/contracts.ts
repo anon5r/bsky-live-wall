@@ -1,15 +1,21 @@
 import type {
+  ApprovalSetting,
   BackfillStatus,
+  ExcludePolicy,
+  ExcludeTerm,
   DisplayConfig,
   ModListInfo,
   ProfileUpdatePayload,
   RemovePayload,
+  WallModerationMode,
   WallPost,
+  WallScreen,
   WallState,
   WallSummary,
   WatchTerm,
   WatchTermType,
 } from './types.js';
+import type { PersistedScreenImage } from './tenancy.js';
 
 /**
  * ingest 層が server 層へ公開する唯一のインターフェース。
@@ -43,8 +49,23 @@ export interface WallHandle {
   getRecent(limit: number): WallPost[];
   getPending(limit: number): WallPost[];
   /** 監視語 (ハッシュタグ / キーワード) を差し替える。 */
-  setTerms(terms: { value: string; type: WatchTermType }[]): WatchTerm[];
+  setTerms(
+    terms: { value: string; type: WatchTermType; requireApproval?: ApprovalSetting }[]
+  ): WatchTerm[];
   getTerms(): WatchTerm[];
+  /** 画面モードと文言。 */
+  getScreen(): { screen: WallScreen; imageUrl: string | null };
+  /** 画面モード / 文言を部分更新する。 */
+  setScreen(patch: Partial<WallScreen>): { screen: WallScreen; imageUrl: string | null };
+  /** 任意画像を差し替える (null で削除)。 */
+  setScreenImage(image: PersistedScreenImage | null): { screen: WallScreen; imageUrl: string | null };
+  /** 除外キーワードと、その扱い。 */
+  getExcludes(): { terms: ExcludeTerm[]; policy: ExcludePolicy };
+  /** 除外キーワード / 扱いを差し替える。省略した項目は変えない。 */
+  setExcludes(input: { terms?: { value: string }[]; policy?: ExcludePolicy }): {
+    terms: ExcludeTerm[];
+    policy: ExcludePolicy;
+  };
   /** 承認待ちの投稿を表示へ昇格させる。 */
   approve(uri: string): boolean;
   /** このウォールの表示をすべて消去する。 */
@@ -72,13 +93,23 @@ export interface WallSource {
   createWall(input: {
     id?: string;
     name: string;
-    terms: { value: string; type: WatchTermType }[];
+    terms: { value: string; type: WatchTermType; requireApproval?: ApprovalSetting }[];
     display?: Partial<DisplayConfig>;
+    moderationMode?: WallModerationMode;
+    keywordRequireApproval?: ApprovalSetting;
   }): WallSummary;
   /** ウォールを削除する。既定ウォールは削除できない。 */
   deleteWall(id: string): boolean;
   /** ウォールの名前や表示設定を更新する。 */
-  updateWall(id: string, input: { name?: string; display?: Partial<DisplayConfig> }): WallSummary | undefined;
+  updateWall(
+    id: string,
+    input: {
+      name?: string;
+      display?: Partial<DisplayConfig>;
+      moderationMode?: WallModerationMode;
+      keywordRequireApproval?: ApprovalSetting;
+    }
+  ): WallSummary | undefined;
 
   // ---- 全ウォール共通のモデレーション ----
   /** 一時停止の切り替え。停止中は post イベントを発火しない。 */

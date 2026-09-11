@@ -11,7 +11,7 @@
   <div id="app">
     <header id="header">
       <div class="header-left">
-        <h1 id="event-title">Bluesky Live Wall</h1>
+        <h1 id="event-title"><i class="fa-brands fa-bluesky"></i> Live Wall</h1>
         <p id="event-subtitle" class="subtitle"></p>
       </div>
       <div class="header-tags" id="hashtags" aria-label="監視中のハッシュタグ"></div>
@@ -24,7 +24,9 @@
           <span id="status-dot" class="status-dot status-connecting" aria-hidden="true"></span>
           <span id="status-text">接続待ち</span>
         </div>
-        <div class="clock" id="clock">--:--:--</div>
+        <div class="clock-block" id="clock-block">
+          <span class="clock" id="clock">--:--</span><span class="clock-sec" id="clock-sec"></span>
+        </div>
       </div>
     </header>
 
@@ -37,9 +39,14 @@
     </button>
 
     <section id="waiting-screen" class="waiting-screen">
-      <p class="waiting-message">接続中……</p>
+      <p class="waiting-message" id="waiting-message">投稿を待っています…</p>
       <p class="waiting-hashtag" id="waiting-hashtag"></p>
       <p class="waiting-hint" id="waiting-hint"></p>
+      <p class="waiting-note" id="waiting-note"></p>
+      <div class="waiting-image" id="waiting-image" hidden>
+        <img id="waiting-image-img" alt="" />
+        <span class="waiting-image-caption" id="waiting-image-caption"></span>
+      </div>
     </section>
   </div>
 

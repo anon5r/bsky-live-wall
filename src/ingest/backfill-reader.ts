@@ -15,6 +15,27 @@ import { createLogger } from '../shared/logger.js';
 const log = createLogger('backfill');
 
 const WANTED_COLLECTION = 'app.bsky.feed.post';
+
+/**
+ * リスナを外したうえで WebSocket を閉じる。
+ *
+ * 接続確立前の WebSocket に close() / terminate() を呼ぶと、ws は
+ * 例外ではなく非同期の 'error' イベントを出す。リスナを全部外した後だと
+ * 受け手がおらず、Node が Unhandled 'error' event でプロセスごと落とす。
+ * 空のハンドラを残してから閉じることでこれを防ぐ。
+ */
+function closeQuietly(ws: WebSocket): void {
+  ws.removeAllListeners();
+  ws.on('error', () => {
+    // 閉じる過程のエラーは無視してよい。
+  });
+  try {
+    ws.close();
+  } catch {
+    // 既に閉じている場合は無視する。
+  }
+}
+
 /** 現在時刻とこの差以内まで再生できたら追いついたとみなす。 */
 const CATCH_UP_THRESHOLD_US = 5_000_000;
 /** 無通信でこの時間が過ぎたら打ち切る。 */
@@ -151,12 +172,7 @@ export class BackfillReader extends EventEmitter {
     this.idleTimer = null;
     this.hardTimer = null;
     if (this.ws) {
-      this.ws.removeAllListeners();
-      try {
-        this.ws.close();
-      } catch {
-        // 既に閉じている場合は無視する。
-      }
+      closeQuietly(this.ws);
       this.ws = null;
     }
     const elapsedMs = this.startedAt === 0 ? 0 : Date.now() - this.startedAt;

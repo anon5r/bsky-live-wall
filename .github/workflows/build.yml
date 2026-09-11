@@ -1,0 +1,79 @@
+# ビルド成果物 (LXC などへ置いて node で動かす形) を作る。
+#
+# 出力は dist/ と public/ に、実行時に必要なマニフェストを添えた tar.gz。
+# 展開先で `pnpm install --prod --frozen-lockfile` を実行して依存を入れる想定。
+# 依存ごと固めないのは、実行環境の Node / libc に合わせて解決させるため。
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # runner に Node / pnpm を用意する。self-hosted では入っているとは限らず、
+      # corepack も無いことがあるため、ここで明示的に入れる。
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Show versions
+        run: |
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: node --test "test/*.test.js"
+
+      - name: Package artifact
+        run: |
+          set -eu
+          name="bsky-live-wall-${GITHUB_SHA::7}"
+          # self-hosted はワークスペースが残るので、毎回作り直す。
+          rm -rf out
+          mkdir -p "out/${name}"
+          # 実行に要るものだけを入れる (public/admin はビルド成果物なので含める)。
+          cp -R dist public "out/${name}/"
+          cp package.json pnpm-lock.yaml .env.example "out/${name}/"
+          cp README.md "out/${name}/" 2>/dev/null || true
+          tar -czf "out/${name}.tar.gz" -C out "${name}"
+          echo "ARTIFACT_NAME=${name}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: out/${{ env.ARTIFACT_NAME }}.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+      # タグを打ったときはリリースにも添付する。
+      # gh CLI が入っていない runner でも動くようにアクションを使う。
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/${{ env.ARTIFACT_NAME }}.tar.gz

@@ -214,3 +214,116 @@ test('同じ URI を二重に追加しても 1 件のまま', () => {
   assert.equal(s.listModLists('my-event').length, 1);
   s.close();
 });
+
+test('承認設定を指定しないウォールは継承 (inherit) として保存される', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event'));
+
+  const [wall] = s.listWalls('my-event');
+  assert.equal(wall.moderationMode, 'inherit');
+  assert.equal(wall.keywordRequireApproval, 'inherit');
+  s.close();
+});
+
+test('ウォールごとの承認設定と語ごとの承認設定が往復する', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(
+    makeWall('my-event', {
+      moderationMode: 'approve',
+      keywordRequireApproval: 'never',
+      terms: [
+        { value: '基調講演', type: 'keyword', normalized: '基調講演', requireApproval: 'never' },
+        { value: 'myevent', type: 'hashtag', normalized: 'myevent', requireApproval: 'always' },
+      ],
+    })
+  );
+
+  const [wall] = s.listWalls('my-event');
+  assert.equal(wall.moderationMode, 'approve');
+  assert.equal(wall.keywordRequireApproval, 'never');
+  assert.equal(wall.terms[0].requireApproval, 'never');
+  assert.equal(wall.terms[1].requireApproval, 'always');
+  s.close();
+});
+
+test('想定外の値が入っていても継承として読み出す', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event', { moderationMode: 'bogus', keywordRequireApproval: 'bogus' }));
+
+  const [wall] = s.listWalls('my-event');
+  assert.equal(wall.moderationMode, 'inherit');
+  assert.equal(wall.keywordRequireApproval, 'inherit');
+  s.close();
+});
+
+test('除外キーワードと扱いが往復する', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(
+    makeWall('my-event', {
+      excludeTerms: [{ value: 'ひどい', normalized: 'ひどい' }],
+      excludePolicy: 'approve',
+    })
+  );
+
+  const [wall] = s.listWalls('my-event');
+  assert.deepEqual(wall.excludeTerms, [{ value: 'ひどい', normalized: 'ひどい' }]);
+  assert.equal(wall.excludePolicy, 'approve');
+  s.close();
+});
+
+test('除外キーワードを指定しないウォールは「除外なし・自動で非承認」で始まる', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event'));
+
+  const [wall] = s.listWalls('my-event');
+  assert.deepEqual(wall.excludeTerms, []);
+  assert.equal(wall.excludePolicy, 'reject');
+  s.close();
+});
+
+test('テナント設定の showBlueskyLogo が往復する', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+
+  // 既定では表示する。
+  assert.equal(s.getTenant('my-event').settings.showBlueskyLogo, true);
+
+  s.updateTenant('my-event', { settings: { showBlueskyLogo: false } });
+  assert.equal(s.getTenant('my-event').settings.showBlueskyLogo, false);
+  s.close();
+});
+
+test('画面モードと画像のメタが往復する', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(
+    makeWall('my-event', {
+      screen: { mode: 'break', breakNote: '14:30 再開', showImage: true },
+      screenImage: { file: 'abc.png', mime: 'image/png', updatedAt: 42 },
+    })
+  );
+
+  const [wall] = s.listWalls('my-event');
+  assert.equal(wall.screen.mode, 'break');
+  assert.equal(wall.screen.breakNote, '14:30 再開');
+  // 保存値に無いキーは既定で埋まる。
+  assert.equal(wall.screen.waitingHeadline, 'ハッシュタグはこちら');
+  assert.deepEqual(wall.screenImage, { file: 'abc.png', mime: 'image/png', updatedAt: 42 });
+  s.close();
+});
+
+test('画面モードを指定しないウォールは通常モードで始まる', () => {
+  const s = store();
+  s.createTenant(makeTenantInput());
+  s.upsertWall(makeWall('my-event'));
+
+  const [wall] = s.listWalls('my-event');
+  assert.equal(wall.screen.mode, 'wall');
+  assert.equal(wall.screenImage, null);
+  s.close();
+});

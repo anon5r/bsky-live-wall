@@ -14,6 +14,27 @@ const log = createLogger('jetstream-client');
 const WATCHDOG_TIMEOUT_MS = 60_000;
 const WANTED_COLLECTION = 'app.bsky.feed.post';
 
+/**
+ * リスナを外したうえで WebSocket を閉じる。
+ *
+ * 接続確立前の WebSocket に close() / terminate() を呼ぶと、ws は
+ * 例外ではなく非同期の 'error' イベントを出す。リスナを全部外した後だと
+ * 受け手がおらず、Node が Unhandled 'error' event でプロセスごと落とす。
+ * 空のハンドラを残してから閉じることでこれを防ぐ。
+ */
+function closeQuietly(ws: WebSocket): void {
+  ws.removeAllListeners();
+  ws.on('error', () => {
+    // 閉じる過程のエラーは無視してよい。
+  });
+  try {
+    ws.close();
+  } catch {
+    // 既に閉じている場合は無視する。
+  }
+}
+
+
 export interface JetstreamClientEvents {
   open: (host: string) => void;
   close: (info: { host: string; code: number; reason: string }) => void;
@@ -76,8 +97,7 @@ export class JetstreamClient extends EventEmitter {
     }
     this.clearWatchdog();
     if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.terminate();
+      closeQuietly(this.ws);
       this.ws = null;
     }
   }
@@ -117,12 +137,7 @@ export class JetstreamClient extends EventEmitter {
     }
     if (this.ws) {
       // 切断ハンドラによる自動再接続を止めてから閉じる。
-      this.ws.removeAllListeners();
-      try {
-        this.ws.close();
-      } catch {
-        // 既に閉じている場合は無視する。
-      }
+      closeQuietly(this.ws);
       this.ws = null;
     }
     log.info(`接続先を切り替えます: ${host}`);

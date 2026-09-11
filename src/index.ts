@@ -4,7 +4,7 @@
  */
 import { loadConfig } from './shared/config.js';
 import { createLogger, setLogLevel } from './shared/logger.js';
-import { createWallSource } from './ingest/index.js';
+import { createTenantRegistry } from './ingest/index.js';
 import { createServer } from './server/index.js';
 
 const config = loadConfig();
@@ -57,19 +57,43 @@ async function main(): Promise<void> {
 
   // 共有サービスとして動かす場合の必須条件を検証する。
   if (config.tenancy.mode === 'multi') {
-    if (config.admin.authMode !== 'oauth') {
+    // token 単独 (OAuth を使わない) 構成は拒否する。共有トークン 1 個では
+    // 「誰がどのテナットの管理者か」を区別できず、テナント分離が成立しない。
+    // `both` は許容する。DID を伴わない Bearer トークンでの操作は
+    // `permission.ts` の `checkTenantPermission` がテナントに属する操作を
+    // 一律で拒否するため、テナント分離は壊れない
+    // (スクリプト・監視用の Bearer は「テナントに属さない」API に限られる)。
+    if (config.admin.authMode === 'token') {
       log.error(
-        'MULTI_TENANT=true では AUTH_MODE=oauth が必須です。' +
-          '共有トークン 1 個を全テナントで使う構成は成立しません ' +
-          '(誰がどのテナントの管理者かを区別できないため)。'
+        'MULTI_TENANT=true では AUTH_MODE=oauth または both が必須です。' +
+          '共有トークン 1 個だけでは、誰がどのテナントの管理者かを区別できません。'
+      );
+      process.exit(1);
+    }
+    // did:web は固定 URL である必要があり、テナントごとに持てない。
+    // フィードジェネレータをテナントの一つに紐付けてしまうと、他のテナントの
+    // 投稿までそのフィードに載っているように見えてしまうため、multi では拒否する。
+    if (config.feedGenerator.enabled) {
+      log.error(
+        'MULTI_TENANT=true と FEED_GENERATOR_ENABLED=true は併用できません。' +
+          'フィードジェネレータの did:web は固定 URL のため、テナントごとに持てません。'
       );
       process.exit(1);
     }
     log.warn(
       'マルチテナントモードは実装途中です。' +
-        'テナントの永続化層まで実装済みで、テナントごとのウォール管理は未対応です。' +
-        '本番運用にはまだ使わないでください。'
+        'テナントの永続化層・受信基盤・server 層のテナント解決までは実装済みですが、' +
+        '管理画面のテナント切り替えは未対応です。本番運用にはまだ使わないでください。'
     );
+    // システム管理者はテナントのメンバー表 (DB) とは別に `.env` で持つ。空でも
+    // 起動は止めない (テナントの owner だけで運用する構成も許容するため) が、
+    // テナントが 1 件も無い状態で締め出されないよう気付けるように警告する。
+    if (config.admin.systemAdmins.length === 0) {
+      log.warn(
+        'SYSTEM_ADMINS が空です。テナントが 1 件も無い状態では誰も管理操作を行えません。' +
+          '例: SYSTEM_ADMINS=alice.bsky.social'
+      );
+    }
   }
 
   // OAuth を使う場合の必須設定を起動時に検証する。
@@ -94,19 +118,30 @@ async function main(): Promise<void> {
     }
   }
 
-  const source = createWallSource(config);
-  const server = await createServer(config, source);
+  const registry = createTenantRegistry(config);
 
   // Jetstream への接続は HTTP リスンより先に開始する。
   // 起動直後にモニターを開いても取りこぼしが起きないようにするため。
-  await source.start();
+  // multi モードはテナントが 0 件でも起動できる (registry.start() は
+  // テナントが無くても hub の接続だけ張って正常に戻る)。
+  //
+  // createServer より先に呼ぶこと。multi モードのテナントは registry.start() で
+  // 初めて組み立てられるため、先に createServer を呼ぶと SSE への中継配線
+  // (wireTenantBroadcast) が 1 件も行われず、会場モニターに投稿が届かなくなる。
+  await registry.start();
+  const server = await createServer(config, registry);
   await server.listen({ port: config.server.port, host: config.server.host });
 
   log.info('起動しました', {
-    url: `http://localhost:${config.server.port}/wall`,
+    mode: config.tenancy.mode,
     admin: `http://localhost:${config.server.port}/admin`,
-    hashtags: config.event.hashtags.map((t) => `#${t}`),
-    moderation: config.moderation.mode,
+    ...(config.tenancy.mode === 'single'
+      ? {
+          url: `http://localhost:${config.server.port}/wall`,
+          hashtags: config.event.hashtags.map((t) => `#${t}`),
+          moderation: config.moderation.mode,
+        }
+      : { tenants: registry.list().length }),
   });
 
   let shuttingDown = false;
@@ -118,7 +153,7 @@ async function main(): Promise<void> {
     const force = setTimeout(() => process.exit(1), 5_000);
     force.unref();
     try {
-      await source.stop();
+      await registry.stop();
       await server.close();
     } catch (err) {
       log.error('終了処理でエラーが発生しました', err);

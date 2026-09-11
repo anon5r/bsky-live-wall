@@ -7,6 +7,68 @@
 export type WatchTermType = 'hashtag' | 'keyword';
 
 /**
+ * 承認要否の指定。
+ * 'inherit' は上位 (語 → ウォール → テナント) の設定に従う。
+ * 'always' はその語に一致した投稿を必ず承認待ちにし、
+ * 'never' は「キーワードのみ一致は承認待ち」の既定を免除する。
+ */
+export type ApprovalSetting = 'inherit' | 'always' | 'never';
+
+/**
+ * 除外キーワードに一致した投稿の扱い。
+ * 'reject'  : 受信した時点で破棄する。承認待ちにも直近の投稿にも残さない (既定)。
+ * 'approve' : 承認待ちに回し、運営が判断する。承認モードや語ごとの設定より優先する。
+ */
+export type ExcludePolicy = 'reject' | 'approve';
+
+/**
+ * 除外キーワード。本文に含まれていたらそのウォールでは拾わない。
+ * ネガティブワードを会場スクリーンに出さないために使う。
+ */
+export interface ExcludeTerm {
+  /** 入力された表記 */
+  value: string;
+  /** 比較用に正規化した値 (NFKC + 小文字化) */
+  normalized: string;
+}
+
+/**
+ * 会場モニターの画面モード。
+ * 'wall' は通常 (投稿を流す)。それ以外は進行に合わせた案内画面を出す。
+ */
+export type ScreenMode = 'wall' | 'waiting' | 'break' | 'ended';
+
+/** 任意画像 (QR コードなど) の位置。 */
+export type ScreenImagePosition = 'bottom-right' | 'bottom-center' | 'bottom-left' | 'center';
+
+/** 任意画像の大きさ。画面高に対する比率で決める。 */
+export type ScreenImageSize = 'small' | 'medium' | 'large';
+
+/** 会場モニターの画面モードと、その文言・画像の設定 (ウォール単位)。 */
+export interface WallScreen {
+  mode: ScreenMode;
+  /** 待機画面の見出し。ハッシュタグ運用なら案内文にすると迷わせない */
+  waitingHeadline: string;
+  waitingHint: string;
+  breakHeadline: string;
+  /** 休憩の再開予定。空なら出さない */
+  breakNote: string;
+  endedHeadline: string;
+  endedNote: string;
+  /** 待機モードのとき、投稿が届いたら通常へ戻すか */
+  autoResume: boolean;
+  /** 任意画像を出すか (通常モードでは出さない) */
+  showImage: boolean;
+  imagePosition: ScreenImagePosition;
+  imageSize: ScreenImageSize;
+  /** 画像に添える一言 */
+  imageCaption: string;
+}
+
+/** ウォール単位の承認モード。'inherit' はテナント設定に従う。 */
+export type WallModerationMode = 'inherit' | ModerationMode;
+
+/**
  * 監視対象の語。
  * hashtag は投稿者が明示的に付けたタグ、keyword は本文中の任意の文字列に一致する。
  */
@@ -16,6 +78,12 @@ export interface WatchTerm {
   type: WatchTermType;
   /** 比較用に正規化した値 (NFKC + 小文字化) */
   normalized: string;
+  /**
+   * この語に一致した投稿の承認要否。省略時は 'inherit'。
+   * 意図して設定したキーワードを即時表示したい場合に 'never' を使う。
+   * ウォールの承認モードが 'approve' のときは、この指定より承認モードが優先される。
+   */
+  requireApproval: ApprovalSetting;
 }
 
 /** 投稿者情報。プロフィール未解決の間は displayName / avatar が undefined になる。 */
@@ -50,6 +118,12 @@ export interface WallPost {
   matchedTags: string[];
   /** 一致した監視キーワード (設定された表記) */
   matchedKeywords: string[];
+  /**
+   * 一致した除外キーワード (設定された表記)。
+   * 空でない投稿は会場モニターへ出さない。却下しても「非表示にした投稿」に残さず、
+   * モデレーターが同じ文面を見続けずに済むようにする。
+   */
+  matchedExcludes?: string[];
   images: WallImage[];
   langs: string[];
   isReply: boolean;
@@ -101,6 +175,21 @@ export interface WallSummary {
   pendingCount: number;
   /** .env から作られた既定ウォール。削除できない */
   isDefault: boolean;
+  /** このウォールの承認モード設定 ('inherit' はテナント設定に従う) */
+  moderationMode: WallModerationMode;
+  /** キーワードのみ一致の扱い ('inherit' はテナント設定に従う) */
+  keywordRequireApproval: ApprovalSetting;
+  /**
+   * 除外キーワード。管理 API にだけ載せる。
+   * ネガティブワードそのものを会場モニターへ配らないため、WallState には含めない。
+   */
+  excludeTerms: ExcludeTerm[];
+  /** 除外キーワードに一致した投稿の扱い */
+  excludePolicy: ExcludePolicy;
+  /** 画面モードの設定 */
+  screen: WallScreen;
+  /** 任意画像の配信 URL。未設定なら null */
+  screenImageUrl: string | null;
 }
 
 /** ウォール全体の状態。SSE の `state` イベントで送出される。 */
@@ -115,8 +204,28 @@ export interface WallState {
   terms: WatchTerm[];
   eventTitle: string;
   eventSubtitle: string;
+  /** タイトルの「Bluesky」をロゴアイコンで表示するか (テナント設定) */
+  showBlueskyLogo: boolean;
+  /** タイトルのグラデーションをゆっくり動かすか (テナント設定) */
+  animateTitleGradient: boolean;
   paused: boolean;
+  /** このウォールに実際に適用されている承認モード (継承を解決済み) */
   moderationMode: ModerationMode;
+  /** 承認モードの出どころ。継承中かどうかの表示に使う */
+  moderationSource: 'tenant' | 'wall';
+  /** このウォールの承認モード設定そのもの */
+  wallModerationMode: WallModerationMode;
+  /** キーワードのみ一致を承認待ちにするか (継承を解決済み) */
+  keywordRequireApproval: boolean;
+  /** キーワードのみ一致の扱いの設定そのもの */
+  wallKeywordRequireApproval: ApprovalSetting;
+  /** テナント既定 (継承元の表示に使う) */
+  tenantModerationMode: ModerationMode;
+  tenantKeywordRequireApproval: boolean;
+  /** 画面モードと文言 (会場モニターが描画に使う) */
+  screen: WallScreen;
+  /** 任意画像の配信 URL。未設定なら null */
+  screenImageUrl: string | null;
   jetstream: JetstreamStatus;
   stats: WallStats;
 }
@@ -136,6 +245,17 @@ export interface DisplayConfig {
   columns: number;
   cardTtlSec: number;
   showImages: boolean;
+  /** 会場モニターのヘッダに監視語を出すか (待機画面のハッシュタグ表示とは別) */
+  showTerms: boolean;
+  /**
+   * ヘッダに監視キーワードも出すか。既定は false。
+   * キーワードは投稿者に入力を促すものではなく、会場に見せる必要がないため。
+   */
+  showKeywords: boolean;
+  /** 会場モニター右上の時計を出すか */
+  showClock: boolean;
+  /** 時計に秒を出すか (時分の右下に小さく添える)。時計自体が非表示なら無視される */
+  showSeconds: boolean;
 }
 
 /** SSE `profile` イベントのペイロード。 */

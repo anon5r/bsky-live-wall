@@ -1,10 +1,10 @@
 <script>
   /**
    * インライン二段階確認ボタン。
-   * 1 回目のクリックで「本当に？」に変わり、3 秒以内に再クリックで確定。
+   * 1 回目のクリックで「本当に？」に変わり、既定 10 秒以内に再クリックで確定。
    * window.confirm 等のブラウザダイアログは使用しない。
    */
-  const CONFIRM_TIMEOUT_MS = 3000;
+  const CONFIRM_TIMEOUT_MS = 10000;
 
   let {
     label,

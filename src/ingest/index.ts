@@ -1,13 +1,12 @@
 /**
  * ingest 層の公開エントリポイント。
- * server 層はここと `src/shared/contracts.ts` の型だけを参照する。
+ * server 層はここと `src/shared/contracts.ts` / `src/shared/ingest-contracts.ts` の
+ * 型だけを参照する。
+ *
+ * 段階 2-d で server 層 (`createServer`) が `WallSource` 単体ではなく
+ * `TenantRegistry` を受け取るようになったため、以前ここにあった
+ * `createWallSource` (既定テナントだけを `WallSource` として見せる互換シム) は
+ * 不要になり削除した。`src/index.ts` は `createTenantRegistry` を直接使う。
  */
-import type { AppConfig } from '../shared/config.js';
-import type { WallSource } from '../shared/contracts.js';
-import { WallManager } from './wall-manager.js';
-
 export { WallManager, DEFAULT_WALL_ID } from './wall-manager.js';
-
-export function createWallSource(config: AppConfig): WallSource {
-  return new WallManager(config);
-}
+export { createTenantRegistry, SingleTenantRegistry, MultiTenantRegistry } from './tenant-registry.js';

@@ -25,6 +25,8 @@
   --text-primary: #f4f7ff;
   --text-secondary: #9aa8d6;
   --text-muted: #6c78a3;
+  /* Bluesky のブランドカラー。ロゴアイコンにだけ使う。 */
+  --bluesky-blue: #0085ff;
   --accent: #2f9bff;
   --accent-strong: #6ec1ff;
   --accent-contrast: #04101f;
@@ -42,6 +44,7 @@
   --header-sub-size: clamp(14px, 1.6vh, 26px);
   --tag-font-size: clamp(18px, 2.4vh, 32px);
   --clock-font-size: clamp(16px, 5vh, 32px);
+  --clock-sec-font-size: clamp(12px, 1.6vh, 24px);
 
   --columns: 1;
   --stream-max-width: min(94vw, 1700px);
@@ -125,6 +128,53 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/*
+ * タイトルのグラデーションをゆっくり流す (管理画面で有効にしたときだけ)。
+ * 会場では常に視界に入るため、速さは控えめにし、動きを減らす設定の環境では止める。
+ */
+#event-title.title-animated {
+  background: linear-gradient(
+    90deg,
+    var(--text-primary),
+    var(--accent-strong),
+    var(--accent),
+    var(--text-primary)
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: title-gradient 12s linear infinite;
+}
+
+@keyframes title-gradient {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #event-title.title-animated {
+    animation: none;
+  }
+}
+
+/*
+ * タイトル中の「Bluesky」を置き換えるロゴ。
+ * タイトル自体はグラデーションで塗っているが、ロゴはブランド色のまま出す
+ * (背景クリップの影響を受けないよう SVG の fill を currentColor で指定している)。
+ */
+.bluesky-logo {
+  height: 0.82em;
+  width: auto;
+  margin: 0 0.1em;
+  vertical-align: -0.07em;
+  color: var(--bluesky-blue);
+  fill: currentColor;
 }
 
 .subtitle {
@@ -220,11 +270,37 @@ body {
   box-shadow: 0 0 0.6em var(--danger);
 }
 
+/*
+ * 時計。秒を出す場合は時分の右下に小さく添える。
+ * ベースラインを揃えると秒が大きく見えるため、下端 (flex-end) で合わせる。
+ */
+.clock-block {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.15em;
+  line-height: 1;
+}
+
 .clock {
   font-size: var(--clock-font-size);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
+  line-height: 1;
   min-width: 3.5ch;
+}
+
+.clock-sec {
+  font-size: var(--clock-sec-font-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  line-height: 1;
+  /* 時分の下端よりわずかに上げて、数字の足元を揃える。 */
+  padding-bottom: 0.06em;
+}
+
+.clock-block[hidden],
+.clock-sec[hidden] {
+  display: none;
 }
 
 /* ---------------- ウォール本体 ---------------- */
@@ -466,6 +542,81 @@ body {
   padding: 0.06em 0.3em;
   letter-spacing: 0.01em;
   word-break: break-all;
+}
+
+/*
+ * 休憩・終演は投稿の上に重ねて出す。通常モードの待機画面 (投稿が無いときだけ出る)
+ * とは違い、後ろのカードが透けて読みにくくならないよう背景を敷く。
+ */
+.waiting-screen.waiting-overlay {
+  background: linear-gradient(160deg, rgba(6, 10, 22, 0.94), rgba(12, 18, 48, 0.97));
+  pointer-events: auto;
+}
+
+/* 休憩の再開時刻。ハッシュタグと同じ大きさで、色だけ変えて区別する。 */
+.waiting-badge-break {
+  background: var(--warn);
+  color: var(--accent-contrast);
+}
+
+/* 終演の補足など、ハッシュタグの下に置く一文。 */
+.waiting-note {
+  margin: 0.2em 0 0;
+  font-size: clamp(15px, 2vh, 30px);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* 任意画像 (QR コードなど)。会場の後ろからでも読める大きさを既定にする。 */
+.waiting-image {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+  padding: 1.1vh;
+  border-radius: 1vh;
+  background: rgba(244, 247, 255, 0.94);
+}
+
+.waiting-image img {
+  display: block;
+  width: auto;
+  height: 100%;
+  object-fit: contain;
+}
+
+.waiting-image-caption {
+  font-size: clamp(12px, 1.8vh, 26px);
+  font-weight: 700;
+  color: #04101f;
+  line-height: 1.2;
+}
+
+.waiting-image-small img { height: 12vh; }
+.waiting-image-medium img { height: 18vh; }
+.waiting-image-large img { height: 26vh; }
+
+.waiting-image-bottom-right {
+  right: 3vw;
+  bottom: 4vh;
+}
+
+.waiting-image-bottom-left {
+  left: 3vw;
+  bottom: 4vh;
+}
+
+.waiting-image-bottom-center {
+  left: 50%;
+  bottom: 4vh;
+  transform: translateX(-50%);
+}
+
+/* 見出しの下に置く場合は、案内の一部として中央に並べる。 */
+.waiting-image-center {
+  position: static;
+  margin-top: 0.4em;
 }
 
 /* 補助メッセージ。ハッシュタグより一段落として読ませる。 */

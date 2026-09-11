@@ -585,22 +585,976 @@ button {
   gap: 8px;
 }
 
+.term-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- 監視語の一覧 (行) ---------- */
+
+/*
+ * チップと選択肢が混在すると視線が上下に振られるため、
+ * 種別 / 語 / 承認要否 / 削除を列で揃える。
+ */
+.term-rows {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.term-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 92px 36px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.term-row-approval {
+  grid-template-columns: 26px minmax(0, 1fr) 92px 15em 36px;
+}
+
+.term-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.term-row-icon-hashtag {
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  color: var(--color-primary);
+}
+
+.term-row-icon-keyword {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+
+.term-row-value {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-row-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 21px;
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.term-row-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.term-row-remove:hover {
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+
+@media (max-width: 700px) {
+  .term-row,
+  .term-row-approval {
+    grid-template-columns: 26px minmax(0, 1fr) 36px;
+    row-gap: 6px;
+  }
+
+  .term-row-type {
+    grid-column: 2 / 3;
+    justify-self: start;
+    padding: 0 9px;
+  }
+
+  .term-row-approval .term-approval-select {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+.term-approval-select {
+  min-width: 0;
+}
+
+.moderation-select {
+  min-width: 16em;
+}
+
 /* ---------- ウォールのタブ ---------- */
 
 .panel-full {
   grid-column: 1 / -1;
 }
 
-.panel-walltabs wa-tab-group {
-  --indicator-color: var(--color-primary);
+/* ---------- コンソール (テナント > ウォールの階層) ---------- */
+
+/*
+ * コンソールは画面いっぱいの縦並び。帯とヘッダは固定し、本体だけをスクロールさせる。
+ * こうすると左ナビの貼り付き位置がヘッダの高さに依存しない
+ * (ヘッダは行の折り返しや一時停止の帯で高さが変わる)。
+ */
+.app-console {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
-.panel-walltabs wa-tab-panel::part(base) {
-  padding-top: 16px;
+.app-console .app-header,
+.app-console .pause-banner {
+  position: static;
+  flex: 0 0 auto;
 }
 
-.wall-panel-content .panel + .panel {
+.console-main-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+
+.console-main-area > .console {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.console {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  /* 左の列を本体と同じ高さに伸ばす。そうしないと中のナビが貼り付けない。 */
+  align-items: stretch;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.console-nav-col {
+  border-right: 1px solid var(--color-border);
+}
+
+.console-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px 20px;
+  /* スクロールするのは本体だけなので、その先頭に貼り付ければよい。 */
+  position: sticky;
+  top: 0;
+  max-height: 100dvh;
+  overflow-y: auto;
+}
+
+.console-nav-group {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.console-nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-right: 10px;
+}
+
+.console-nav-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.console-caret {
+  transition: transform 0.15s ease;
+  color: var(--color-text-muted);
+}
+
+.console-caret.is-open {
+  transform: rotate(90deg);
+}
+
+/* ウォール配下のセクション。線でテナントとの親子関係を示す。 */
+.console-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 18px;
+  padding-left: 12px;
+  border-left: 1px solid var(--color-border);
+}
+
+.wall-nav-sub {
+  font-size: 13px;
+  min-height: 34px;
+}
+
+.console-main {
+  min-width: 0;
+}
+
+.console-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-alt);
+}
+
+.console-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.console-bar-name {
+  font-weight: 700;
+}
+
+.console-section {
+  padding: 20px 22px 28px;
+}
+
+.console-section > .panel + .panel,
+.console-section > .panel + .field-note,
+.console-section > .monitor-preview + .panel {
   margin-top: 16px;
+}
+
+@media (max-width: 1023px) {
+  .console {
+    grid-template-columns: 1fr;
+  }
+
+  .console-nav-col {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .console-nav {
+    position: static;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .console-nav-group,
+  .console-nav-head {
+    width: 100%;
+  }
+
+  .console-subnav {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+/* ---------- ウォールバー (どのウォールを操作しているか) ---------- */
+
+.panel-walltabs {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wall-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.wall-bar-left,
+.wall-bar-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wall-bar-icon {
+  color: var(--color-primary);
+}
+
+.wall-bar-select {
+  width: 14em;
+}
+
+.wall-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wall-chip strong {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.wall-chip-warn {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+
+.wall-chip-warn strong {
+  color: var(--color-warning);
+}
+
+.wall-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.wall-chip-dot.is-on {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 22%, transparent);
+}
+
+/* ---------- ウォールの作業領域 (ナビ + セクション) ---------- */
+
+.wall-workspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: start;
+}
+
+.wall-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 10px;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  position: sticky;
+  top: 72px;
+}
+
+.wall-nav-group {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.wall-nav-group + .wall-nav-group,
+.wall-nav-item + .wall-nav-group {
+  margin-top: 10px;
+}
+
+.wall-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wall-nav-item:hover {
+  background: var(--color-surface-alt);
+}
+
+.wall-nav-item.is-active {
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.wall-nav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wall-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wall-nav-item.is-active .wall-nav-badge {
+  background: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  color: var(--color-primary);
+}
+
+.wall-nav-badge-warn {
+  background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  color: var(--color-warning);
+}
+
+.wall-nav-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.wall-nav-foot .field-note {
+  padding: 0 10px;
+}
+
+.wall-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wall-section {
+  min-width: 0;
+  padding: 18px 20px 24px;
+}
+
+.wall-section-solo {
+  grid-column: 1 / -1;
+  max-width: 860px;
+}
+
+.wall-section > .panel + .panel,
+.wall-section > .panel + .field-note {
+  margin-top: 16px;
+}
+
+.wall-section-head {
+  margin-bottom: 14px;
+}
+
+.wall-section-head h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.wall-section-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* 継承を解決した結果を 1 枚にまとめて出す */
+.summary-card {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+}
+
+.summary-card > i {
+  color: var(--color-primary);
+  margin-top: 3px;
+}
+
+.summary-card-title {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summary-card-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* 取り消せない操作は視覚的に隔離する */
+.danger-zone {
+  border-color: color-mix(in srgb, var(--color-danger) 38%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+}
+
+.danger-zone-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-danger);
+}
+
+.danger-zone .control-row {
+  border-bottom-color: color-mix(in srgb, var(--color-danger) 20%, transparent);
+}
+
+/* 会場モニターのヘッダのプレビュー */
+.monitor-preview {
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.monitor-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: #0b0f1e;
+}
+
+.monitor-preview-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #f4f7ff;
+  white-space: nowrap;
+}
+
+.monitor-preview-logo {
+  width: 18px;
+  height: 16px;
+}
+
+.monitor-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.monitor-preview-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.monitor-preview-pill-hashtag {
+  background: #2f9bff;
+  color: #04101f;
+}
+
+.monitor-preview-pill-keyword {
+  background: rgba(255, 204, 77, 0.22);
+  color: #ffcc4d;
+}
+
+.monitor-preview-clock {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto;
+  color: #9aa8d6;
+  font-variant-numeric: tabular-nums;
+}
+
+.monitor-preview-hm {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.monitor-preview-sec {
+  font-size: 12px;
+  line-height: 1;
+  padding-bottom: 1px;
+}
+
+.monitor-preview-caption {
+  margin: 0;
+  padding: 7px 18px;
+  background: var(--color-surface-alt);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 画面モードと会場モニターのプレビュー ---------- */
+
+.monitor-modes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.monitor-modes-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  margin-right: 4px;
+}
+
+.monitor-mode-btn {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.monitor-mode-btn:hover {
+  color: var(--color-text);
+}
+
+.monitor-mode-btn.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.monitor-screen {
+  position: relative;
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(160deg, #060a16, #0c1230);
+  overflow: hidden;
+}
+
+.monitor-screen-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.monitor-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  overflow: hidden;
+}
+
+.monitor-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #141a33;
+  border: 1px solid rgba(140, 170, 255, 0.22);
+}
+
+.monitor-card-empty {
+  opacity: 0.55;
+}
+
+.monitor-card-avatar {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #1b2242;
+}
+
+.monitor-card-body {
+  min-width: 0;
+}
+
+.monitor-card-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f4f7ff;
+}
+
+.monitor-card-text {
+  margin: 3px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #f4f7ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.monitor-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 40px;
+  text-align: center;
+}
+
+.monitor-message-headline {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: #f4f7ff;
+  line-height: 1.25;
+}
+
+.monitor-message-badge {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  color: #04101f;
+  background: #2f9bff;
+  border-radius: 10px;
+  padding: 2px 16px;
+  line-height: 1.2;
+}
+
+.monitor-message-badge.is-break {
+  background: #ffcc4d;
+}
+
+.monitor-message-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #9aa8d6;
+  line-height: 1.6;
+}
+
+/* プレビュー内の任意画像。会場モニターと同じ位置関係で置く。 */
+.monitor-image {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(244, 247, 255, 0.94);
+}
+
+.monitor-image img {
+  display: block;
+  height: 64px;
+  width: auto;
+}
+
+.monitor-image-caption {
+  font-size: 10px;
+  font-weight: 700;
+  color: #04101f;
+}
+
+.monitor-image-bottom-right {
+  right: 16px;
+  bottom: 16px;
+}
+
+.monitor-image-bottom-left {
+  left: 16px;
+  bottom: 16px;
+}
+
+.monitor-image-bottom-center {
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+}
+
+.monitor-image-center {
+  position: static;
+  align-self: center;
+  margin-top: 10px;
+}
+
+/* プレビューでも動きを確かめられるようにする (会場モニターと同じ速さ)。 */
+.monitor-preview-title-animated {
+  background: linear-gradient(90deg, #f4f7ff, #6ec1ff, #2f9bff, #f4f7ff);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: preview-title-gradient 12s linear infinite;
+}
+
+@keyframes preview-title-gradient {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitor-preview-title-animated {
+    animation: none;
+  }
+}
+
+.monitor-preview-sub {
+  font-size: 12px;
+  color: #9aa8d6;
+}
+
+.monitor-preview-placeholder {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.monitor-preview-placeholder span {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px dashed rgba(140, 170, 255, 0.3);
+  font-size: 11px;
+  color: #6c78a3;
+}
+
+.settings-input {
+  width: 22em;
+  max-width: 100%;
+}
+
+.screen-image-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.screen-image-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+}
+
+.screen-image-input {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  max-width: 230px;
+}
+
+/* 除外キーワードのように、ラベル行の下に一覧が続く行 */
+.control-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.control-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.exclude-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.exclude-list {
+  margin: 0;
+}
+
+.exclude-add {
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+
+.control-label.is-dimmed {
+  opacity: 0.5;
+}
+
+@media (max-width: 1023px) {
+  .wall-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .wall-nav {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .wall-nav-group {
+    width: 100%;
+  }
+
+  .wall-nav-item {
+    width: auto;
+  }
+
+  .wall-nav-foot {
+    width: 100%;
+  }
 }
 
 .wall-rename-slot {
@@ -770,4 +1724,298 @@ button {
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-text-muted);
+}
+
+/* ---------- メンバー管理 ---------- */
+/* ---------- メンバー管理 ---------- */
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * アバター / 本体 / 操作の 3 列。本体だけが伸び縮みする。
+ * DID は長いので本体側で省略し、行の高さが崩れないようにする。
+ */
+.member-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.member-avatar {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+  user-select: none;
+}
+
+.member-avatar-owner {
+  border-color: var(--color-primary);
+}
+
+/* 役割のアイコンは頭文字の右下に小さく重ねる。 */
+.member-avatar-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.member-avatar-owner .member-avatar-badge {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.member-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.member-handle {
+  font-weight: 600;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.member-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.member-did {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-added {
+  white-space: nowrap;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* 役割の選択肢は幅を固定する。伸ばすと行が間延びして読みにくい。 */
+.member-role-select {
+  flex: 0 0 auto;
+  width: 11em;
+}
+
+.member-add-row wa-input {
+  flex: 1 1 16em;
+}
+
+/* 幅が足りない場合は操作を下の行へ落とす (文字を重ねない)。 */
+@media (max-width: 720px) {
+  .member-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .member-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+/* タブのラベルと件数バッジが詰まって読みにくくなるのを防ぐ。 */
+/* 監視対象の追加ボタンの補足 */
+.term-add-note {
+  margin-top: 6px;
+}
+
+.term-add-note i {
+  opacity: 0.75;
+}
+
+/* ---------- システム管理: タブとアカウント ---------- */
+
+.system-tabs {
+  display: flex;
+  gap: 8px;
+  max-width: 1400px;
+  margin: 16px auto 0;
+  padding: 0 20px;
+}
+
+.system-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.system-tab.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.system-tab.is-active .panel-count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+.account-select {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.member-item.is-selected {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+.account-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+
+.account-memberships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.account-membership {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 6px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+}
+
+.account-membership-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.account-role-select {
+  width: 10em;
+}
+
+/* ---------- テナント選択画面 ---------- */
+.tenant-select-main {
+  padding: 16px 20px 40px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.tenant-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.tenant-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-alt);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tenant-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tenant-card-name {
+  font-weight: 700;
+}
+
+.tenant-card-role {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tenant-card-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+/* ---------- システム管理画面 ---------- */
+.system-tenant-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }

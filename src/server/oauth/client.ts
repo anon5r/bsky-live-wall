@@ -64,13 +64,18 @@ export interface AllowedActor {
 }
 
 /**
- * 許可リストのハンドルを DID に解決する。
+ * アクター (ハンドルまたは DID) の一覧を DID へ解決する。
  * ハンドルは変更され得るため、認可の判定には必ず DID を使う。
+ * `ADMIN_ACTORS` (許可リスト) と `SYSTEM_ADMINS` (システム管理者) の両方が
+ * 同じ形式・同じ解決方法を使うため、共通処理として切り出してある。
  */
-export async function resolveAllowedActors(config: AppConfig): Promise<Map<string, AllowedActor>> {
+export async function resolveActors(
+  config: AppConfig,
+  actors: string[]
+): Promise<Map<string, AllowedActor>> {
   const result = new Map<string, AllowedActor>();
-  const handles = config.admin.allowedActors.filter((a) => !a.startsWith('did:'));
-  const dids = config.admin.allowedActors.filter((a) => a.startsWith('did:'));
+  const handles = actors.filter((a) => !a.startsWith('did:'));
+  const dids = actors.filter((a) => a.startsWith('did:'));
 
   for (const did of dids) {
     result.set(did, { did, handle: did });
@@ -104,4 +109,30 @@ export async function resolveAllowedActors(config: AppConfig): Promise<Map<strin
   }
 
   return result;
+}
+
+/** `ADMIN_ACTORS` (管理を許可するアカウント) を DID へ解決する。 */
+export async function resolveAllowedActors(config: AppConfig): Promise<Map<string, AllowedActor>> {
+  return resolveActors(config, config.admin.allowedActors);
+}
+
+/** `SYSTEM_ADMINS` を DID へ解決する。 */
+export async function resolveSystemAdmins(config: AppConfig): Promise<Map<string, AllowedActor>> {
+  return resolveActors(config, config.admin.systemAdmins);
+}
+
+/**
+ * 単一のアクター (ハンドルまたは DID) を DID へ解決する。
+ * メンバー追加・テナント作成時のオーナー指定など、その場で 1 件だけ解決したいときに使う。
+ * 解決できなければ `undefined`。
+ */
+export async function resolveActor(config: AppConfig, actor: string): Promise<AllowedActor | undefined> {
+  const trimmed = actor.trim().replace(/^@/, '');
+  if (trimmed === '') return undefined;
+  if (trimmed.startsWith('did:')) return { did: trimmed, handle: trimmed };
+  const resolved = await resolveActors(config, [trimmed]);
+  for (const a of resolved.values()) {
+    if (a.handle.toLowerCase() === trimmed.toLowerCase()) return a;
+  }
+  return undefined;
 }

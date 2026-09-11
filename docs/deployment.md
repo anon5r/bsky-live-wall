@@ -60,7 +60,8 @@ ADMIN_ACTORS=alice.bsky.social,bob.example.com
 
 - `PUBLIC_URL` が設定されていること
 - `PUBLIC_URL` が https であること (localhost 開発時のみ `OAUTH_ALLOW_HTTP=true` で回避)
-- `ADMIN_ACTORS` が空でないこと (空だと誰もログインできない)
+- `ADMIN_ACTORS` が空でないこと (空だと最初の 1 人がログインできない。
+  以後は管理画面から招待したメンバーも `.env` を触らずにログインできる)
 
 #### 認証と認可を分けている
 
@@ -271,6 +272,41 @@ journalctl -u bsky-live-wall -f
 `deploy/bsky-live-wall.service` は権限を最小化した定義になっています
 (`ProtectSystem=strict`、`ReadOnlyPaths`、`NoNewPrivileges` 等)。
 状態はすべてメモリ上にあり書き込み先がないため、読み取り専用で動作します。
+
+### ビルド済みの成果物を置く場合
+
+GitHub Actions の `build` ワークフローが、実行に必要なものだけを固めた
+`bsky-live-wall-<sha>.tar.gz` を作ります (成果物、タグを打った場合はリリースにも添付)。
+ビルドの道具を置きたくない LXC ではこちらを使います。
+
+```bash
+# 取得して展開 (gh CLI を使う例。リリースからダウンロードしてもよい)
+gh run download -n bsky-live-wall-<sha> -D /tmp
+tar -xzf /tmp/bsky-live-wall-<sha>.tar.gz -C /opt
+ln -sfn /opt/bsky-live-wall-<sha> /opt/bsky-live-wall
+
+cd /opt/bsky-live-wall
+corepack enable
+# 依存は実行環境で入れる (Node と libc に合わせて解決させるため)
+pnpm install --prod --frozen-lockfile
+
+cp .env.example .env
+# .env を編集してから systemd で起動する (上と同じ)
+node dist/index.js
+```
+
+中身は `dist/` (サーバー)、`public/` (会場モニターとビルド済みの管理画面)、
+`package.json` / `pnpm-lock.yaml` / `.env.example` です。ソースと開発依存は含みません。
+更新はシンボリックリンクの張り替えで行えます。
+
+### コンテナイメージを使う場合
+
+`docker` ワークフローが `ghcr.io/<owner>/bsky-live-wall` へ push します。
+`main` は `latest`、タグ `v1.2.3` は `1.2.3` / `1.2` / `1` として配られます。
+
+```bash
+docker pull ghcr.io/<owner>/bsky-live-wall:latest
+```
 
 ### LXC コンテナ側の注意
 

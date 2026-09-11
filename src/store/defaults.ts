@@ -4,6 +4,7 @@
  * `createTenant` で `settings` が省略/部分指定された場合にここで埋める。
  * `.env` ベースの単一テナント運用 (src/shared/config.ts) の既定値と揃えてある。
  */
+import { defaultBackfillPresets } from '../shared/config.js';
 import type { TenantSettings } from '../shared/tenancy.js';
 
 export function defaultTenantSettings(): TenantSettings {
@@ -18,6 +19,10 @@ export function defaultTenantSettings(): TenantSettings {
     allowReplies: true,
     filterLabeled: true,
     allowedLangs: [],
-    startupBackfillMinutes: 120,
+    // 起動時には取り込まない。必要なときに管理画面から実行する。
+    startupBackfillMinutes: 0,
+    backfillPresets: defaultBackfillPresets(),
+    showBlueskyLogo: true,
+    animateTitleGradient: false,
   };
 }
