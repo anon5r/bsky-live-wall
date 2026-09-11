@@ -43,6 +43,7 @@ function settingsFromConfig(config: AppConfig): TenantSettings {
     startupBackfillMinutes: config.jetstream.startupBackfillMinutes,
     backfillPresets: defaultBackfillPresets(),
     showBlueskyLogo: config.event.showBlueskyLogo,
+    animateTitleGradient: config.event.animateTitleGradient,
   };
 }
 

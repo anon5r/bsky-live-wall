@@ -206,6 +206,8 @@ export interface WallState {
   eventSubtitle: string;
   /** タイトルの「Bluesky」をロゴアイコンで表示するか (テナント設定) */
   showBlueskyLogo: boolean;
+  /** タイトルのグラデーションをゆっくり動かすか (テナント設定) */
+  animateTitleGradient: boolean;
   paused: boolean;
   /** このウォールに実際に適用されている承認モード (継承を解決済み) */
   moderationMode: ModerationMode;

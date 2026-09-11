@@ -1000,6 +1000,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       eventTitle: this.settings.title,
       eventSubtitle: this.settings.subtitle,
       showBlueskyLogo: this.settings.showBlueskyLogo !== false,
+      animateTitleGradient: this.settings.animateTitleGradient === true,
       paused: this.paused,
       moderationMode: this.effectiveModerationMode(wall),
       moderationSource: wall.moderationMode === 'inherit' ? 'tenant' : 'wall',

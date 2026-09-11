@@ -60,6 +60,19 @@
     return '';
   });
 
+  // セクションを切り替えたら先頭へ戻す。長い画面から短い画面へ移ったときに
+  // スクロール位置が残っていると、貼り付いた左ナビだけがずれて見える。
+  let lastSection = '';
+  $effect(() => {
+    const current = section;
+    if (lastSection && lastSection !== current) {
+      // スクロールするのは本体だけ。ページ全体ではなくその中身を先頭へ戻す。
+      const area = document.querySelector('.console-main-area');
+      if (area) area.scrollTop = 0;
+    }
+    lastSection = current;
+  });
+
   // 起動直後はウォールが未取得なので、最初に届いた時点で選択中のウォールを開く。
   $effect(() => {
     if (!openWallId && store.currentWallId) openWallId = store.currentWallId;
@@ -141,6 +154,9 @@
 
 <div class="console">
   <!-- 左: テナント > ウォール の階層ナビ -->
+  <!-- 列 (グリッド項目) と、その中で貼り付くナビを分ける。
+       ナビ自体をグリッド項目にすると、列の高さ = ナビの高さになり貼り付けない。 -->
+  <div class="console-nav-col">
   <nav class="console-nav" aria-label="設定">
     <p class="console-nav-group">テナント全体</p>
     {#each tenantSections as item (item.id)}
@@ -207,6 +223,7 @@
       </button>
     {/if}
   </nav>
+  </div>
 
   <!-- 右: 選択したセクション -->
   <div class="console-main">

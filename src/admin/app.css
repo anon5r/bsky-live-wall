@@ -710,20 +710,47 @@ button {
 
 /* ---------- コンソール (テナント > ウォールの階層) ---------- */
 
+/*
+ * コンソールは画面いっぱいの縦並び。帯とヘッダは固定し、本体だけをスクロールさせる。
+ * こうすると左ナビの貼り付き位置がヘッダの高さに依存しない
+ * (ヘッダは行の折り返しや一時停止の帯で高さが変わる)。
+ */
+.app-console {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-console .app-header,
+.app-console .pause-banner {
+  position: static;
+  flex: 0 0 auto;
+}
+
 .console-main-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 40px;
+}
+
+.console-main-area > .console {
   max-width: 1500px;
   margin: 0 auto;
-  padding: 16px 20px 40px;
 }
 
 .console {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  align-items: start;
+  /* 左の列を本体と同じ高さに伸ばす。そうしないと中のナビが貼り付けない。 */
+  align-items: stretch;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  overflow: hidden;
+}
+
+.console-nav-col {
+  border-right: 1px solid var(--color-border);
 }
 
 .console-nav {
@@ -731,10 +758,10 @@ button {
   flex-direction: column;
   gap: 2px;
   padding: 14px 10px 20px;
-  border-right: 1px solid var(--color-border);
+  /* スクロールするのは本体だけなので、その先頭に貼り付ければよい。 */
   position: sticky;
-  top: 72px;
-  max-height: calc(100vh - 90px);
+  top: 0;
+  max-height: 100dvh;
   overflow-y: auto;
 }
 
@@ -825,13 +852,16 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .console-nav-col {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
   .console-nav {
     position: static;
     max-height: none;
     flex-direction: row;
     flex-wrap: wrap;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
   }
 
   .console-nav-group,
@@ -1393,6 +1423,31 @@ button {
   position: static;
   align-self: center;
   margin-top: 10px;
+}
+
+/* プレビューでも動きを確かめられるようにする (会場モニターと同じ速さ)。 */
+.monitor-preview-title-animated {
+  background: linear-gradient(90deg, #f4f7ff, #6ec1ff, #2f9bff, #f4f7ff);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: preview-title-gradient 12s linear infinite;
+}
+
+@keyframes preview-title-gradient {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitor-preview-title-animated {
+    animation: none;
+  }
 }
 
 .monitor-preview-sub {

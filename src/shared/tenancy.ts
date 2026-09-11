@@ -58,6 +58,11 @@ export interface TenantSettings {
    * イベントによってはロゴを出したくない (主催者ロゴと並べたくない等) ため切り替えられる。
    */
   showBlueskyLogo: boolean;
+  /**
+   * 会場モニターのタイトルのグラデーションをゆっくり動かすか。
+   * 既定は止めておく (動くものが常に視界にあると疲れるため)。
+   */
+  animateTitleGradient: boolean;
 }
 
 /** テナントを操作できるアカウント。招待制の実体。 */

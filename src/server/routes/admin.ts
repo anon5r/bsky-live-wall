@@ -391,6 +391,7 @@ export function registerAdminRoutes(
         title: settings.title,
         subtitle: settings.subtitle,
         showBlueskyLogo: settings.showBlueskyLogo !== false,
+        animateTitleGradient: settings.animateTitleGradient === true,
         backfillPresets: settings.backfillPresets ?? [],
         allowReplies: settings.allowReplies,
         filterLabeled: settings.filterLabeled,
@@ -669,6 +670,7 @@ export function registerAdminRoutes(
       title?: unknown;
       subtitle?: unknown;
       showBlueskyLogo?: unknown;
+      animateTitleGradient?: unknown;
       backfillPresets?: unknown;
       allowReplies?: unknown;
       filterLabeled?: unknown;
@@ -693,7 +695,12 @@ export function registerAdminRoutes(
       changed.push(key);
     }
 
-    for (const key of ['showBlueskyLogo', 'allowReplies', 'filterLabeled'] as const) {
+    for (const key of [
+      'showBlueskyLogo',
+      'animateTitleGradient',
+      'allowReplies',
+      'filterLabeled',
+    ] as const) {
       const value = body[key];
       if (value === undefined) continue;
       if (typeof value !== 'boolean') return badRequest(reply, `${key} は boolean で指定してください`);

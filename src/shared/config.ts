@@ -37,6 +37,8 @@ export interface AppConfig {
     hashtags: string[];
     /** タイトルの「Bluesky」をロゴアイコンで表示するか */
     showBlueskyLogo: boolean;
+    /** タイトルのグラデーションをゆっくり動かすか */
+    animateTitleGradient: boolean;
     /** 比較用に正規化 (NFKC + 小文字 + 先頭 # 除去) 済みのタグ */
     normalizedHashtags: string[];
     /** 既定ウォールの除外キーワードの初期値 */
@@ -310,6 +312,7 @@ export function loadConfig(): AppConfig {
       title: str('EVENT_TITLE', 'Bluesky Live Wall'),
       subtitle: str('EVENT_SUBTITLE', ''),
       showBlueskyLogo: bool('SHOW_BLUESKY_LOGO', true),
+      animateTitleGradient: bool('ANIMATE_TITLE_GRADIENT', false),
       hashtags: hashtags.map((t) => t.replace(/^#+/, '')),
       normalizedHashtags: [...new Set(hashtags.map(normalizeTag).filter(Boolean))],
       excludeTerms: buildExcludeTerms(list('EXCLUDE_WORDS')),

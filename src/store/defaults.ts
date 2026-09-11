@@ -23,5 +23,6 @@ export function defaultTenantSettings(): TenantSettings {
     startupBackfillMinutes: 0,
     backfillPresets: defaultBackfillPresets(),
     showBlueskyLogo: true,
+    animateTitleGradient: false,
   };
 }

@@ -131,6 +131,39 @@ body {
 }
 
 /*
+ * タイトルのグラデーションをゆっくり流す (管理画面で有効にしたときだけ)。
+ * 会場では常に視界に入るため、速さは控えめにし、動きを減らす設定の環境では止める。
+ */
+#event-title.title-animated {
+  background: linear-gradient(
+    90deg,
+    var(--text-primary),
+    var(--accent-strong),
+    var(--accent),
+    var(--text-primary)
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: title-gradient 12s linear infinite;
+}
+
+@keyframes title-gradient {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #event-title.title-animated {
+    animation: none;
+  }
+}
+
+/*
  * タイトル中の「Bluesky」を置き換えるロゴ。
  * タイトル自体はグラデーションで塗っているが、ロゴはブランド色のまま出す
  * (背景クリップの影響を受けないよう SVG の fill を currentColor で指定している)。

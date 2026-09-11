@@ -24,16 +24,21 @@
   function openWall() {
     window.open(wallUrl(store.currentWallId), '_blank', 'noopener');
   }
+
 </script>
 
 <Toast />
 
 {#if store.page === 'app'}
-  <div class="pause-banner" hidden={!store.state.paused}>
-    モニターへの配信を停止中 (全ウォール共通) - 受信は続いていますが、会場モニターには新規表示されません
-  </div>
+  <!--
+    コンソールは画面いっぱいの縦並び (帯 + ヘッダ + 本体)。本体だけがスクロールするので、
+    左ナビの貼り付き位置がヘッダの高さに左右されない。
+  -->
+  <div class="app app-console">
+    <div class="pause-banner" hidden={!store.state.paused}>
+      モニターへの配信を停止中 (全ウォール共通) - 受信は続いていますが、会場モニターには新規表示されません
+    </div>
 
-  <div class="app">
     <header class="app-header">
       <div class="app-header-title">
         <h1>Bluesky Live Wall <span class="app-header-sub">管理画面</span></h1>

@@ -709,6 +709,8 @@
     if (wallState.eventTitle) {
       renderEventTitle(wallState.eventTitle, wallState.showBlueskyLogo !== false);
     }
+    // タイトルのグラデーションを動かすか。動きが苦手な環境では CSS 側で止める。
+    titleEl.classList.toggle('title-animated', wallState.animateTitleGradient === true);
     // 複数ウォール運用では、どのウォールを映しているかが分かるようにする。
     const parts = [];
     if (wallState.wallName && wallState.wallName !== wallState.eventTitle) {
@@ -960,6 +962,7 @@
     applyWallState({
       eventTitle: 'Bluesky Live Wall デモ',
       showBlueskyLogo: true,
+      animateTitleGradient: true,
       screen: { mode: 'wall', waitingHeadline: 'ハッシュタグはこちら' },
       screenImageUrl: null,
       eventSubtitle: 'Bluesky Live Wall 動作確認用',
