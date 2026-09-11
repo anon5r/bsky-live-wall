@@ -237,6 +237,7 @@ SQLite は WAL モードで動いています。停止中に取るのが確実�
 
 | 症状 | 原因と対処 |
 | --- | --- |
+| `curl http://localhost:3000` が無反応に見える | `/` は `/wall` (multi では `/admin`) への 302 で本文が空。`curl -i` か `curl -L` で確認する。`/api/health` を叩くのが確実 |
 | 起動直後に落ちる (`ADMIN_TOKEN` のエラー) | `TRUST_PROXY=true` ならトークンが必須 |
 | 設定がコンテナの作り直しで消える | `/app/data` にボリュームを当てていない |
 | 画像をアップロードすると失敗する | 同上。`read_only` のまま `/app/data` が無いと書けない |
