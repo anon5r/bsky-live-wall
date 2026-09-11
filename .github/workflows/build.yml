@@ -20,8 +20,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable corepack (pnpm)
-        run: corepack enable
+      # runner に Node / pnpm を用意する。self-hosted では入っているとは限らず、
+      # corepack も無いことがあるため、ここで明示的に入れる。
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
 
       - name: Show versions
         run: |
@@ -44,7 +52,8 @@ jobs:
         run: |
           set -eu
           name="bsky-live-wall-${GITHUB_SHA::7}"
-          rm -rf "out/${name}"
+          # self-hosted はワークスペースが残るので、毎回作り直す。
+          rm -rf out
           mkdir -p "out/${name}"
           # 実行に要るものだけを入れる (public/admin はビルド成果物なので含める)。
           cp -R dist public "out/${name}/"
@@ -62,8 +71,9 @@ jobs:
           if-no-files-found: error
 
       # タグを打ったときはリリースにも添付する。
+      # gh CLI が入っていない runner でも動くようにアクションを使う。
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" "out/${ARTIFACT_NAME}.tar.gz" --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/${{ env.ARTIFACT_NAME }}.tar.gz
