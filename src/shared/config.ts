@@ -22,8 +22,32 @@ export interface AppConfig {
     mode: TenancyMode;
     /** テナント設定の保存先 (multi のときのみ使う)。 */
     dataFile: string;
-    /** 会場モニターに出す任意画像 (QR など) の保存先ディレクトリ。 */
+    /** 会場モニターに出す任意画像 (QR など) の保存先ディレクトリ (ローカル保存のとき)。 */
     uploadDir: string;
+  };
+  /**
+   * 会場モニターに出す画像の保存先。
+   * 'local' はディスク、's3' は S3 互換ストレージ
+   * (Cloudflare R2 / MEGA S4 / AWS S3 / Backblaze B2 など)。
+   */
+  storage: {
+    driver: 'local' | 's3';
+    s3: {
+      endpoint: string;
+      region: string;
+      bucket: string;
+      accessKeyId: string;
+      secretAccessKey: string;
+      /** キーの接頭辞。バケットを他と共有する場合に使う */
+      prefix: string;
+      /**
+       * 画像を直接配る URL の基点 (公開バケットやカスタムドメイン)。
+       * 空ならアプリが `/uploads/<key>` で中継する。
+       */
+      publicBaseUrl: string;
+      /** `https://<endpoint>/<bucket>/<key>` の形で叩くか (既定)。 */
+      forcePathStyle: boolean;
+    };
   };
   event: {
     /**
@@ -306,6 +330,20 @@ export function loadConfig(): AppConfig {
       mode: bool('MULTI_TENANT', false) ? 'multi' : 'single',
       dataFile: str('DATA_FILE', './data/wall.db'),
       uploadDir: str('UPLOAD_DIR', './data/uploads'),
+    },
+    storage: {
+      driver: str('STORAGE_DRIVER', 'local') === 's3' ? 's3' : 'local',
+      s3: {
+        endpoint: str('S3_ENDPOINT', '').replace(/\/+$/, ''),
+        // R2 は 'auto'、AWS は 'ap-northeast-1' のようにリージョンを指定する。
+        region: str('S3_REGION', 'auto'),
+        bucket: str('S3_BUCKET', ''),
+        accessKeyId: str('S3_ACCESS_KEY_ID', ''),
+        secretAccessKey: str('S3_SECRET_ACCESS_KEY', ''),
+        prefix: str('S3_PREFIX', '').replace(/^\/+/, ''),
+        publicBaseUrl: str('S3_PUBLIC_BASE_URL', '').replace(/\/+$/, ''),
+        forcePathStyle: bool('S3_FORCE_PATH_STYLE', true),
+      },
     },
     event: {
       id: normalizeSlug(str('EVENT_ID', 'default')) || 'default',

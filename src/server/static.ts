@@ -15,6 +15,7 @@ import { resolve } from 'node:path';
 import { createLogger } from '../shared/logger.js';
 import type { TenantRegistry } from '../shared/ingest-contracts.js';
 import type { TenancyMode } from '../shared/tenancy.js';
+import type { ImageStore } from './image-store.js';
 
 const logger = createLogger('static');
 
@@ -71,7 +72,7 @@ export async function registerStatic(
   app: FastifyInstance,
   registry: TenantRegistry,
   mode: TenancyMode,
-  uploadDir?: string
+  uploads: { uploadDir?: string; images?: ImageStore } = {}
 ): Promise<void> {
   const publicDir = resolvePublicDir();
 
@@ -83,8 +84,8 @@ export async function registerStatic(
 
   // 会場モニターに出す任意画像 (QR など)。会場モニター自体が公開ページなので
   // ここも認証は掛けない。ファイル名は推測できない乱数にしてある。
-  if (uploadDir) {
-    const resolved = resolve(uploadDir);
+  if (uploads.uploadDir) {
+    const resolved = resolve(uploads.uploadDir);
     mkdirSync(resolved, { recursive: true });
     await app.register(fastifyStatic, {
       root: resolved,
@@ -94,6 +95,20 @@ export async function registerStatic(
       // 差し替えたときに古い画像が残らないよう、URL のクエリで更新時刻を渡している。
       cacheControl: true,
       maxAge: 60_000,
+    });
+  }
+
+  // 外部ストレージを非公開のまま使う構成では、アプリが同じ経路で中継する。
+  // 会場モニターから見た URL の形はローカル保存のときと変わらない。
+  if (uploads.images) {
+    const images = uploads.images;
+    app.get<{ Params: { key: string } }>('/uploads/:key', async (request, reply) => {
+      const found = images.read ? await images.read(request.params.key) : null;
+      if (!found) return reply.code(404).type('text/plain; charset=utf-8').send('not found');
+      return reply
+        .type(found.mime)
+        .header('Cache-Control', 'public, max-age=60')
+        .send(found.bytes);
     });
   }
 

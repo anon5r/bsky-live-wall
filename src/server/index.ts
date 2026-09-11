@@ -28,6 +28,7 @@ import { registerAuthMeRoute } from './routes/me.js';
 import { setSystemAdminDids } from './permission.js';
 import { resolveSystemAdmins } from './oauth/client.js';
 import { HubRegistry } from './hub-registry.js';
+import { createImageStore } from './image-store.js';
 import { registerStatic } from './static.js';
 
 const logger = createLogger('server');
@@ -46,6 +47,8 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
   const app = Fastify({ logger: false, trustProxy: config.server.trustProxy });
 
   const hubs = new HubRegistry();
+  // 会場モニターに出す画像の保存先 (ローカル or S3 互換)。
+  const images = createImageStore(config);
 
   // 起動時点で既にあるテナントの投稿イベントを SSE へ中継できるようにする。
   // (稼働中に作られたテナントは routes/tenants.ts が個別に配線する)
@@ -99,7 +102,7 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
   const tenantScopedApi = async (instance: FastifyInstance): Promise<void> => {
     registerStreamRoutes(instance, config, hubs);
     registerPostsRoutes(instance);
-    registerAdminRoutes(instance, config, sessions);
+    registerAdminRoutes(instance, config, sessions, images);
     // OAuth が無効な構成 (AUTH_MODE=token) では許可リストの概念自体が無い。
     if (oauthRuntime) registerActorsRoutes(instance, config, sessions, oauthRuntime);
   };
@@ -146,7 +149,11 @@ export async function createServer(config: AppConfig, registry: TenantRegistry):
     });
   }
 
-  await registerStatic(app, registry, config.tenancy.mode, config.tenancy.uploadDir);
+  await registerStatic(app, registry, config.tenancy.mode, {
+    uploadDir: config.storage.driver === 'local' ? config.tenancy.uploadDir : undefined,
+    // 外部ストレージで公開 URL を持たない構成では、アプリが画像を中継する。
+    images: config.storage.driver === 's3' && !config.storage.s3.publicBaseUrl ? images : undefined,
+  });
 
   app.addHook('onClose', (_instance, done) => {
     hubs.closeAll();

@@ -53,7 +53,12 @@ export class Wall {
     /** 会場モニターの画面モードと文言。 */
     public screen: WallScreen = defaultWallScreen(),
     /** 任意画像 (QR など)。実体はファイル、ここではメタだけ持つ。 */
-    public screenImage: PersistedScreenImage | null = null
+    public screenImage: PersistedScreenImage | null = null,
+    /**
+     * 画像を直接配る URL の基点。
+     * 空ならアプリ自身が `/uploads/` で配る (ローカル保存、または非公開バケットの中継)。
+     */
+    public imageBaseUrl: string = ''
   ) {
     this.store = new PostStore({ size: bufferSize, pendingSize: bufferSize });
   }
@@ -113,7 +118,9 @@ export class Wall {
    */
   screenImageUrl(): string | null {
     if (!this.screenImage) return null;
-    return '/uploads/' + encodeURIComponent(this.screenImage.file) + '?v=' + this.screenImage.updatedAt;
+    const name = encodeURIComponent(this.screenImage.file);
+    const base = this.imageBaseUrl || '/uploads';
+    return `${base}/${name}?v=${this.screenImage.updatedAt}`;
   }
 }
 

@@ -104,6 +104,7 @@ README の「設定」の表にまとめています。
 | --- | --- | --- |
 | `DATA_FILE` | `./data/wall.db` | `MULTI_TENANT=true` のとき。テナント・ウォール・メンバーを保存する |
 | `UPLOAD_DIR` | `./data/uploads` | 会場モニターに出す画像 (QR など) を保存する |
+| `STORAGE_DRIVER` | `local` | `s3` にすると画像を外部ストレージへ置く ([storage.md](./storage.md)) |
 
 単一テナント運用で画像も使わないなら、状態はすべてメモリ上にあり、書き込み先は
 要りません。この場合ディスクは読み取り専用でも動きます。

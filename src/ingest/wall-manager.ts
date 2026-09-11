@@ -154,7 +154,10 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         'inherit',
         // single モードでは `.env` の EXCLUDE_WORDS を初期値にする。
         this.store ? [] : config.event.excludeTerms,
-        'reject'
+        'reject',
+        undefined,
+        null,
+        this.imageBaseUrl()
       );
       this.walls.set(defaultWall.id, defaultWall);
       this.persistWall(defaultWall);
@@ -204,8 +207,20 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       buildExcludeTerms(p.excludeTerms ?? []),
       p.excludePolicy ?? 'reject',
       { ...defaultWallScreen(), ...(p.screen ?? {}) },
-      p.screenImage ?? null
+      p.screenImage ?? null,
+      this.imageBaseUrl()
     );
+  }
+
+  /**
+   * 画像を直接配る URL の基点。
+   * 外部ストレージを公開 URL 付きで使う構成でだけ値が入る。
+   * 空のときはアプリが `/uploads/` で配る (ローカル保存、または非公開バケットの中継)。
+   */
+  private imageBaseUrl(): string {
+    const storage = this.config.storage;
+    if (storage.driver !== 's3' || !storage.s3.publicBaseUrl) return '';
+    return `${storage.s3.publicBaseUrl}/${storage.s3.prefix}`.replace(/\/+$/, '');
   }
 
   /** 現在のウォール一覧を永続化する (store があるときのみ)。 */
@@ -459,7 +474,12 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
       false,
       this.config.buffer.size,
       input.moderationMode ?? 'inherit',
-      input.keywordRequireApproval ?? 'inherit'
+      input.keywordRequireApproval ?? 'inherit',
+      [],
+      'reject',
+      undefined,
+      null,
+      this.imageBaseUrl()
     );
     this.walls.set(id, wall);
     this.persistWall(wall);
@@ -543,6 +563,7 @@ export class WallManager extends EventEmitter implements WallSource, TenantRunti
         this.scheduleStateEmit(wall.id);
         return { screen: wall.screen, imageUrl: wall.screenImageUrl() };
       },
+      getScreenImageKey: () => (wall.screenImage ? wall.screenImage.file : null),
       setScreenImage: (image) => {
         wall.screenImage = image;
         // 画像を消したら表示も止める。出す設定のまま欠けた画像を探させない。

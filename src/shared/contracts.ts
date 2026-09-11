@@ -57,6 +57,8 @@ export interface WallHandle {
   getScreen(): { screen: WallScreen; imageUrl: string | null };
   /** 画面モード / 文言を部分更新する。 */
   setScreen(patch: Partial<WallScreen>): { screen: WallScreen; imageUrl: string | null };
+  /** 任意画像の識別子 (保存先でのキー)。未設定なら null。 */
+  getScreenImageKey(): string | null;
   /** 任意画像を差し替える (null で削除)。 */
   setScreenImage(image: PersistedScreenImage | null): { screen: WallScreen; imageUrl: string | null };
   /** 除外キーワードと、その扱い。 */

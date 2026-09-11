@@ -74,6 +74,10 @@ docker pull ghcr.io/anon5r/bsky-live-wall:latest
 単一テナント運用で画像も使わない場合、状態はすべてメモリ上にあり、ボリュームは
 空のままです (当てておいて困ることはありません)。
 
+画像を S3 互換ストレージ (Cloudflare R2 / MEGA S4 / AWS S3 / Backblaze B2) に
+置く場合は、`/app/data` に残るのはテナント設定の SQLite だけになります。
+設定は [storage.md](./storage.md) を参照してください。
+
 ## 1. Compose (既定: アプリだけ)
 
 `docker compose up -d` はアプリだけを起動し、**ホストの `127.0.0.1:3000`** に出します。
@@ -181,7 +185,8 @@ docker run -d --name bsky-live-wall \
 | `BIND_PORT` | `3000` | ホスト側のポート |
 | `ADMIN_TOKEN` | 必須 | `TRUST_PROXY=true` で未設定だと起動しない |
 | `DATA_FILE` | `./data/wall.db` | 既定のままで `/app/data` (ボリューム) に載る |
-| `UPLOAD_DIR` | `./data/uploads` | 同上 |
+| `UPLOAD_DIR` | `./data/uploads` | 同上 (`STORAGE_DRIVER=local` のとき) |
+| `STORAGE_DRIVER` | `local` | `s3` にすると画像を外部ストレージへ置く ([storage.md](./storage.md)) |
 | `PUBLIC_URL` | `https://wall.example.com` | OAuth を使う場合に必須 |
 
 ## 運用
