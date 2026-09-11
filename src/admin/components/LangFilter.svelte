@@ -103,7 +103,7 @@
               aria-hidden="true"
             ></i>
             <span class="lang-option-name">{lang.label}</span>
-            {#if lang.sub}<span class="lang-option-sub">{lang.sub}</span>{/if}
+            <span class="lang-option-sub">{lang.sub}</span>
             <span class="lang-chip-code">{lang.code}</span>
           </button>
         </li>
