@@ -17,7 +17,7 @@ env:
 
 jobs:
   image:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -59,6 +59,6 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # self-hosted runner ではローカルのレイヤキャッシュを使う。
+          # GitHub Actions のキャッシュにレイヤを保存する。
           cache-from: type=gha
           cache-to: type=gha,mode=max
